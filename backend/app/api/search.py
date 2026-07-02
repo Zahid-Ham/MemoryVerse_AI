@@ -212,7 +212,7 @@ def semantic_search(request: SemanticSearchRequest):
             "emotions": [e.strip() for e in meta.get("emotions", "").split(",") if e.strip()] if meta.get("emotions") else []
         }
 
-        if similarity_score >= 0.50:
+        if similarity_score >= 0.40:
             formatted_results.append({
                 "document_id": document_id,
                 "chunk_text": documents[idx],

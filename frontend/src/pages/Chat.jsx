@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
 import {
   Send,
@@ -20,6 +21,7 @@ import {
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export default function Chat() {
+  const navigate = useNavigate();
   const {
     messages,
     suggestedFollowUps,
@@ -282,7 +284,7 @@ export default function Chat() {
       </div>
 
       {/* Messages List Area */}
-      <div className="flex-1 overflow-y-auto py-6 space-y-6 px-1 pr-3 scrollbar-thin">
+      <div className="flex-1 overflow-y-auto py-6 space-y-6 px-1 pr-3 scrollbar-thin" data-lenis-prevent>
         <AnimatePresence initial={false}>
           {messages.map((msg) => {
             const isUser = msg.role === 'user';
@@ -362,15 +364,49 @@ export default function Chat() {
                         )}
                       </div>
                       
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                         {msg.citations.map((cite) => (
-                          <div key={cite.id} className="p-3 border border-border/80 rounded-xl bg-card hover:bg-secondary/15 transition-all text-xs space-y-1">
-                            <div className="flex justify-between items-center text-[10px] text-muted-foreground font-bold">
-                              <span className="flex items-center gap-1 truncate max-w-[140px]">
-                                <FileText className="w-3 h-3 text-primary shrink-0" />
-                                {cite.title}
-                              </span>
-                              <span className="shrink-0">Match {Math.round(cite.score * 100)}%</span>
+                          <div
+                            key={cite.id}
+                            onClick={() => navigate(`/memories/${cite.document_id}?highlight=${encodeURIComponent(cite.text || '')}`)}
+                            className="p-3.5 border border-border hover:border-primary/20 rounded-xl bg-card hover:bg-secondary/15 transition-all text-xs space-y-2.5 cursor-pointer relative group/cite shadow-xs flex flex-col justify-between"
+                          >
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center text-[10px] text-muted-foreground font-bold">
+                                <span className="flex items-center gap-1.5 truncate max-w-[130px]" title={cite.title}>
+                                  <FileText className="w-3.5 h-3.5 text-primary shrink-0" />
+                                  {cite.title}
+                                </span>
+                                <span className="shrink-0 bg-primary/10 text-primary px-1.5 py-0.5 rounded text-[8px] uppercase tracking-wider font-bold">
+                                  Match {Math.round(cite.score * 100)}%
+                                </span>
+                              </div>
+                              {cite.text && (
+                                <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-3 bg-secondary/35 p-2 rounded-lg font-mono whitespace-pre-wrap select-all">
+                                  {cite.text}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1 text-[9px] text-muted-foreground border-t border-border/40">
+                              <span>Click to inspect source</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigator.clipboard.writeText(cite.text || '');
+                                  setCopiedId(cite.id);
+                                  setTimeout(() => setCopiedId(null), 2000);
+                                }}
+                                className="p-1 rounded bg-secondary hover:text-foreground hover:bg-secondary/80 transition-colors flex items-center gap-1"
+                                title="Copy citation text"
+                              >
+                                {copiedId === cite.id ? (
+                                  <Check className="w-3 h-3 text-emerald-500 font-bold" />
+                                ) : (
+                                  <Copy className="w-3 h-3" />
+                                )}
+                                <span>{copiedId === cite.id ? 'Copied' : 'Copy'}</span>
+                              </button>
                             </div>
                           </div>
                         ))}

@@ -29,7 +29,8 @@ class RAGEngine:
                     "id": f"{src.get('document_id')}_chunk_{src.get('chunk_index')}",
                     "document_id": src.get("document_id"),
                     "title": src.get("filename"),
-                    "score": 0.85
+                    "score": src.get("score") or 0.85,
+                    "text": src.get("text")
                 })
 
             return {
@@ -60,7 +61,8 @@ class RAGEngine:
                 "id": f"{src.get('document_id')}_chunk_{src.get('chunk_index')}",
                 "document_id": src.get("document_id"),
                 "title": src.get("filename"),
-                "score": score
+                "score": score,
+                "text": src.get("text")
             })
 
         confidence_score = round(sum(scores) / len(scores), 2) if scores else 0.0

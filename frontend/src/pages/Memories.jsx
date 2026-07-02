@@ -18,7 +18,13 @@ import {
   ArrowUpDown,
   X,
   FileImage,
-  Info
+  Info,
+  Layers,
+  MessageSquare,
+  Share2,
+  User,
+  MapPin,
+  ExternalLink
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -33,6 +39,7 @@ export default function Memories() {
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
   const [sortBy, setSortBy] = useState('date-desc'); // 'date-desc' | 'date-asc' | 'name-asc' | 'name-desc' | 'size-desc' | 'size-asc'
   const [filterType, setFilterType] = useState('all'); // 'all' | 'pdf' | 'doc' | 'text' | 'image'
+  const [filterCategory, setFilterCategory] = useState('all'); // 'all' | 'Projects' | 'Skills' | 'Certifications' | 'Internships' | 'Achievements' | 'Academics' | 'General'
   
   // Preview modal states
   const [previewFile, setPreviewFile] = useState(null);
@@ -133,7 +140,7 @@ export default function Memories() {
     return <FileText className="w-4 h-4 text-purple-500" />;
   };
 
-  // Filter based on search query and file category
+  // Filter based on search query, type and category
   const filteredFiles = files
     .filter((file) =>
       file.filename.toLowerCase().includes(searchQuery.toLowerCase())
@@ -145,6 +152,10 @@ export default function Memories() {
       if (filterType === 'text') return file.filetype === 'text/plain';
       if (filterType === 'image') return file.filetype.startsWith('image/');
       return true;
+    })
+    .filter((file) => {
+      if (filterCategory === 'all') return true;
+      return (file.category || 'General').toLowerCase() === filterCategory.toLowerCase();
     });
 
   // Sort files
@@ -206,6 +217,25 @@ export default function Memories() {
               <option value="doc" className="bg-card">Documents</option>
               <option value="text" className="bg-card">Text Files</option>
               <option value="image" className="bg-card">Images</option>
+            </select>
+          </div>
+
+          {/* Category Filter */}
+          <div className="flex items-center gap-2 bg-background/50 border border-border rounded-lg p-1">
+            <Layers className="w-3.5 h-3.5 text-muted-foreground ml-2 mr-1" />
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="bg-transparent text-xs text-foreground focus:outline-none pr-2 py-1 cursor-pointer font-medium"
+            >
+              <option value="all" className="bg-card">All Categories</option>
+              <option value="projects" className="bg-card">Projects</option>
+              <option value="skills" className="bg-card">Skills</option>
+              <option value="certifications" className="bg-card">Certifications</option>
+              <option value="internships" className="bg-card">Internships</option>
+              <option value="achievements" className="bg-card">Achievements</option>
+              <option value="academics" className="bg-card">Academics</option>
+              <option value="general" className="bg-card">General</option>
             </select>
           </div>
 
@@ -332,52 +362,129 @@ export default function Memories() {
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
                   transition={{ duration: 0.2 }}
-                  className="bg-card border border-border hover:border-primary/20 rounded-xl p-5 flex flex-col justify-between hover:shadow-md transition-all relative group"
+                  className="bg-card border border-border hover:border-primary/30 rounded-xl p-5 flex flex-col justify-between hover:shadow-lg transition-all duration-300 relative group overflow-hidden min-h-[290px]"
                 >
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div className="p-2 bg-secondary/80 rounded-lg">
-                        {getFileIcon(file.filetype)}
-                      </div>
-                      <span className="text-[10px] bg-secondary/60 px-2 py-0.5 rounded font-semibold uppercase tracking-wider text-muted-foreground">
-                        {file.filetype.split('/')[1] || 'FILE'}
-                      </span>
-                    </div>
-                    <Link to={`/memories/${file.id}`} className="hover:text-primary transition-colors block truncate">
-                      <h3 className="font-bold text-sm tracking-tight text-foreground truncate mt-2" title={file.filename}>
-                        {file.filename}
-                      </h3>
+                  {/* Hover Action Overlay */}
+                  <div className="absolute inset-0 bg-background/95 backdrop-blur-xs opacity-0 group-hover:opacity-100 translate-y-4 group-hover:translate-y-0 transition-all duration-300 flex flex-col items-center justify-center gap-2.5 p-5 z-10 pointer-events-none group-hover:pointer-events-auto">
+                    <h4 className="font-bold text-xs text-foreground truncate max-w-[90%] mb-1" title={file.filename}>{file.filename}</h4>
+                    
+                    <button
+                      onClick={() => handlePreview(file)}
+                      className="w-4/5 py-2 px-3 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Preview File</span>
+                    </button>
+
+                    <Link
+                      to={`/memories/${file.id}`}
+                      className="w-4/5 py-2 px-3 rounded-lg bg-secondary text-foreground hover:bg-secondary/80 text-xs font-semibold flex items-center justify-center gap-1.5 border border-border transition-all"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Open Detail</span>
+                    </Link>
+
+                    <Link
+                      to="/chat"
+                      className="w-4/5 py-2 px-3 rounded-lg bg-secondary text-foreground hover:bg-secondary/80 text-xs font-semibold flex items-center justify-center gap-1.5 border border-border transition-all"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Chat About Document</span>
+                    </Link>
+
+                    <Link
+                      to="/relationships"
+                      className="w-4/5 py-2 px-3 rounded-lg bg-secondary text-foreground hover:bg-secondary/80 text-xs font-semibold flex items-center justify-center gap-1.5 border border-border transition-all"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Show Relationships</span>
                     </Link>
                   </div>
 
-                  <div className="border-t border-border/60 mt-4 pt-3 flex items-center justify-between text-[11px] text-muted-foreground">
+                  {/* Normal Card Content */}
+                  <div className="space-y-3.5 flex-1 flex flex-col justify-between">
+                    <div className="space-y-3">
+                      {/* Card Header: Icons & Badges */}
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-2">
+                          <div className="p-2 bg-secondary/80 rounded-lg">
+                            {getFileIcon(file.filetype)}
+                          </div>
+                          {file.category && (
+                            <span className="text-[10px] bg-primary/10 text-primary px-2.5 py-0.5 rounded-full font-semibold">
+                              {file.category}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[9px] bg-secondary/60 px-2 py-0.5 rounded font-bold uppercase tracking-wider text-muted-foreground">
+                          {file.filetype.split('/')[1] || 'FILE'}
+                        </span>
+                      </div>
+
+                      {/* Card Title */}
+                      <Link to={`/memories/${file.id}`} className="hover:text-primary transition-colors block">
+                        <h3 className="font-bold text-sm tracking-tight text-foreground line-clamp-1 mt-1" title={file.filename}>
+                          {file.filename}
+                        </h3>
+                      </Link>
+
+                      {/* Summary */}
+                      <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2 min-h-[32px]">
+                        {file.metadata?.summary || <span className="italic text-muted-foreground/70">No summary extracted yet.</span>}
+                      </p>
+                    </div>
+
+                    {/* Entities (Tags, People, Locations) */}
+                    <div className="space-y-2 pt-2 border-t border-border/40">
+                      {/* Tags */}
+                      {file.metadata?.tags && file.metadata.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {file.metadata.tags.slice(0, 3).map((tag, i) => (
+                            <span key={i} className="text-[9px] bg-secondary/60 text-muted-foreground px-1.5 py-0.5 rounded">
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* People & Locations */}
+                      <div className="flex flex-col gap-1 text-[10px] text-muted-foreground">
+                        {file.metadata?.people && file.metadata.people.length > 0 && (
+                          <div className="flex items-center gap-1 truncate">
+                            <User className="w-3 h-3 text-muted-foreground/70 shrink-0" />
+                            <span className="truncate">{file.metadata.people.slice(0, 2).join(', ')}</span>
+                          </div>
+                        )}
+                        {file.metadata?.locations && file.metadata.locations.length > 0 && (
+                          <div className="flex items-center gap-1 truncate">
+                            <MapPin className="w-3 h-3 text-muted-foreground/70 shrink-0" />
+                            <span className="truncate">{file.metadata.locations.slice(0, 2).join(', ')}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card Footer: Metadata & Actions */}
+                  <div className="border-t border-border/60 mt-4 pt-3 flex items-center justify-between text-[10px] text-muted-foreground">
                     <div className="flex flex-col gap-0.5">
-                      <span className="flex items-center gap-1.5">
+                      <span className="flex items-center gap-1">
                         <HardDrive className="w-3 h-3 text-muted-foreground/75" />
                         {formatSize(file.filesize)}
                       </span>
-                      <span className="flex items-center gap-1.5">
+                      <span className="flex items-center gap-1">
                         <Calendar className="w-3 h-3 text-muted-foreground/75" />
                         {formatDate(file.uploaded_at)}
                       </span>
                     </div>
                     
-                    <div className="flex items-center gap-1.5">
-                      <Link
-                        to={`/memories/${file.id}`}
-                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
-                        title="View Details"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </Link>
-                      <button
-                        onClick={() => handleDelete(file.id, file.filename)}
-                        className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
-                        title="Delete Memory"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleDelete(file.id, file.filename)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all z-20 relative hover:scale-105"
+                      title="Delete Memory"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </motion.div>
               ))}
@@ -385,52 +492,121 @@ export default function Memories() {
           ) : (
             <motion.div
               layout
-              className="bg-card border border-border rounded-xl divide-y divide-border overflow-hidden"
+              className="space-y-3"
             >
               {sortedFiles.map((file) => (
                 <motion.div
                   key={file.id}
                   layout
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 5 }}
                   transition={{ duration: 0.2 }}
-                  className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-secondary/10 transition-all group"
+                  className="bg-card border border-border rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:border-primary/20 hover:shadow-xs transition-all duration-300 relative group overflow-hidden"
                 >
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div className="p-2 bg-secondary/80 rounded-lg shrink-0">
+                  {/* Normal Row Content */}
+                  <div className="flex items-start md:items-center gap-3.5 min-w-0 flex-1">
+                    {/* File Icon */}
+                    <div className="p-2.5 bg-secondary/80 rounded-xl shrink-0">
                       {getFileIcon(file.filetype)}
                     </div>
-                    <div className="min-w-0">
-                      <Link to={`/memories/${file.id}`} className="hover:text-primary transition-colors">
-                        <h3 className="font-semibold text-sm text-foreground truncate" title={file.filename}>
+                    
+                    {/* Main Details (Title & Summary) */}
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link to={`/memories/${file.id}`} className="hover:text-primary transition-colors font-bold text-sm text-foreground truncate max-w-sm md:max-w-md">
                           {file.filename}
-                        </h3>
-                      </Link>
-                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-0.5">
-                        <span className="uppercase">{file.filetype.split('/')[1] || 'FILE'}</span>
-                        <span>•</span>
-                        <span>{formatSize(file.filesize)}</span>
-                        <span>•</span>
-                        <span>{formatDate(file.uploaded_at)}</span>
+                        </Link>
+                        {file.category && (
+                          <span className="text-[9px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+                            {file.category}
+                          </span>
+                        )}
+                        <span className="text-[9px] bg-secondary/60 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider text-muted-foreground">
+                          {file.filetype.split('/')[1] || 'FILE'}
+                        </span>
+                      </div>
+
+                      {/* Summary */}
+                      <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-1">
+                        {file.metadata?.summary || <span className="italic text-muted-foreground/60">No summary extracted.</span>}
+                      </p>
+
+                      {/* Mini pills: Tags, People, Locations */}
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground mt-0.5">
+                        {file.metadata?.tags && file.metadata.tags.length > 0 && (
+                          <span className="truncate max-w-[200px] text-muted-foreground/85">
+                            Tags: {file.metadata.tags.slice(0, 3).map(t => `#${t}`).join(', ')}
+                          </span>
+                        )}
+                        {file.metadata?.people && file.metadata.people.length > 0 && (
+                          <span className="flex items-center gap-1 truncate max-w-[150px]">
+                            <User className="w-3 h-3 text-muted-foreground/75 shrink-0" />
+                            {file.metadata.people.slice(0, 2).join(', ')}
+                          </span>
+                        )}
+                        {file.metadata?.locations && file.metadata.locations.length > 0 && (
+                          <span className="flex items-center gap-1 truncate max-w-[150px]">
+                            <MapPin className="w-3 h-3 text-muted-foreground/75 shrink-0" />
+                            {file.metadata.locations.slice(0, 2).join(', ')}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                  {/* List View Details (Date & Size) */}
+                  <div className="flex items-center gap-6 text-[10px] text-muted-foreground shrink-0 pl-14 md:pl-0">
+                    <span className="flex items-center gap-1.5">
+                      <HardDrive className="w-3.5 h-3.5 text-muted-foreground/75" />
+                      {formatSize(file.filesize)}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-muted-foreground/75" />
+                      {formatDate(file.uploaded_at)}
+                    </span>
+                  </div>
+
+                  {/* Hover Panel Slide-in / Buttons */}
+                  <div className="flex items-center gap-1.5 shrink-0 md:opacity-0 group-hover:opacity-100 transition-all duration-300 pl-14 md:pl-0 z-10">
+                    <button
+                      onClick={() => handlePreview(file)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+                      title="Preview"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                    
                     <Link
                       to={`/memories/${file.id}`}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+                      title="Open Details"
                     >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>View</span>
+                      <ExternalLink className="w-4 h-4" />
                     </Link>
+
+                    <Link
+                      to="/chat"
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+                      title="Chat about this document"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                    </Link>
+
+                    <Link
+                      to="/relationships"
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+                      title="Show relationships"
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </Link>
+
                     <button
                       onClick={() => handleDelete(file.id, file.filename)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                      title="Delete Memory"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Delete</span>
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </motion.div>
@@ -484,7 +660,7 @@ export default function Memories() {
               </div>
 
               {/* Modal Body / Preview Content */}
-              <div className="flex-1 overflow-y-auto p-6 bg-background/30">
+              <div className="flex-1 overflow-y-auto p-6 bg-background/30" data-lenis-prevent>
                 {previewLoading ? (
                   <div className="flex flex-col items-center justify-center py-20 space-y-3">
                     <RefreshCw className="w-6 h-6 animate-spin text-primary" />

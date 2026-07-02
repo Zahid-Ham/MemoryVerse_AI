@@ -30,9 +30,20 @@ export default function Dashboard() {
     topTags: [],
     topPeople: [],
     topLocations: [],
-    insights: []
+    isProcessing: false,
+    aiInsights: {
+      mostDiscussedTopic: { name: 'None', count: 0, description: '' },
+      mostConnectedPerson: { name: 'None', count: 0, description: '' },
+      recentlyActiveLocations: { name: 'None', count: 0, description: '' },
+      largestDocumentCluster: { name: 'General', count: 0, percentage: 0, description: '' },
+      newestKnowledgeArea: { name: 'General', description: '' },
+      naturalLanguageInsights: []
+    }
   });
   const [isLoading, setIsLoading] = useState(true);
+
+  const [isDemoLoading, setIsDemoLoading] = useState(false);
+  const hasDemoData = statsData.recentUploads.some(doc => doc.id && doc.id.startsWith('demo_doc_'));
 
   const fetchDashboardData = async () => {
     setIsLoading(true);
@@ -46,9 +57,51 @@ export default function Dashboard() {
     }
   };
 
+  const handleLoadDemo = async () => {
+    setIsDemoLoading(true);
+    try {
+      await axios.post(`${API_URL}/api/demo/load`);
+      window.dispatchEvent(new CustomEvent('refresh-data'));
+      await fetchDashboardData();
+    } catch (err) {
+      console.error('Failed to load demo data', err);
+    } finally {
+      setIsDemoLoading(false);
+    }
+  };
+
+  const handleClearDemo = async () => {
+    setIsDemoLoading(true);
+    try {
+      await axios.post(`${API_URL}/api/demo/clear`);
+      window.dispatchEvent(new CustomEvent('refresh-data'));
+      await fetchDashboardData();
+    } catch (err) {
+      console.error('Failed to clear demo data', err);
+    } finally {
+      setIsDemoLoading(false);
+    }
+  };
+
   const triggerReload = () => {
     fetchDashboardData();
   };
+
+  // Poll for stats updates if documents are actively processing
+  useEffect(() => {
+    if (!statsData.isProcessing) return;
+
+    const intervalId = setInterval(async () => {
+      try {
+        const response = await axios.get(`${API_URL}/api/dashboard/stats`);
+        setStatsData(response.data);
+      } catch (err) {
+        console.error('Failed to poll dashboard data', err);
+      }
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [statsData.isProcessing]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -98,7 +151,7 @@ export default function Dashboard() {
     size: formatSize(f.filesize),
     date: formatDate(f.uploaded_at),
     status: 'Ingested',
-    tags: ['Local']
+    tags: f.category ? [f.category] : ['General']
   }));
 
   // Document type colors
@@ -227,6 +280,80 @@ export default function Dashboard() {
             })}
           </div>
 
+          {/* AI Insights Grid Cards */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center gap-2 text-primary">
+              <Sparkles className="w-4.5 h-4.5 animate-pulse" />
+              <h2 className="font-bold text-sm text-foreground uppercase tracking-wider">AI Memory Insights</h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              {/* Card 1: Most Discussed Topic */}
+              <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between hover:border-primary/20 transition-all duration-300 shadow-xs">
+                <div>
+                  <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider block">Most Discussed Topic</span>
+                  <h4 className="text-xs font-bold text-foreground mt-1.5 truncate" title={statsData.aiInsights?.mostDiscussedTopic?.name}>
+                    {statsData.aiInsights?.mostDiscussedTopic?.name || "None"}
+                  </h4>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
+                  {statsData.aiInsights?.mostDiscussedTopic?.description}
+                </p>
+              </div>
+
+              {/* Card 2: Most Connected Person */}
+              <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between hover:border-primary/20 transition-all duration-300 shadow-xs">
+                <div>
+                  <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider block">Most Connected Person</span>
+                  <h4 className="text-xs font-bold text-foreground mt-1.5 truncate" title={statsData.aiInsights?.mostConnectedPerson?.name}>
+                    {statsData.aiInsights?.mostConnectedPerson?.name || "None"}
+                  </h4>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
+                  {statsData.aiInsights?.mostConnectedPerson?.description}
+                </p>
+              </div>
+
+              {/* Card 3: Recently Active Locations */}
+              <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between hover:border-primary/20 transition-all duration-300 shadow-xs">
+                <div>
+                  <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider block">Active Locations</span>
+                  <h4 className="text-xs font-bold text-foreground mt-1.5 truncate" title={statsData.aiInsights?.recentlyActiveLocations?.name}>
+                    {statsData.aiInsights?.recentlyActiveLocations?.name || "None"}
+                  </h4>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
+                  {statsData.aiInsights?.recentlyActiveLocations?.description}
+                </p>
+              </div>
+
+              {/* Card 4: Largest Document Cluster */}
+              <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between hover:border-primary/20 transition-all duration-300 shadow-xs">
+                <div>
+                  <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider block">Largest Cluster</span>
+                  <h4 className="text-xs font-bold text-foreground mt-1.5 truncate" title={statsData.aiInsights?.largestDocumentCluster?.name}>
+                    {statsData.aiInsights?.largestDocumentCluster?.name || "General"}
+                  </h4>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
+                  {statsData.aiInsights?.largestDocumentCluster?.description}
+                </p>
+              </div>
+
+              {/* Card 5: Newest Knowledge Area */}
+              <div className="bg-card border border-border rounded-xl p-4 flex flex-col justify-between hover:border-primary/20 transition-all duration-300 shadow-xs">
+                <div>
+                  <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wider block">Newest Knowledge Area</span>
+                  <h4 className="text-xs font-bold text-foreground mt-1.5 truncate" title={statsData.aiInsights?.newestKnowledgeArea?.name}>
+                    {statsData.aiInsights?.newestKnowledgeArea?.name || "General"}
+                  </h4>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
+                  {statsData.aiInsights?.newestKnowledgeArea?.description}
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Left Content Area (Columns 1 & 2) */}
             <div className="lg:col-span-2 space-y-8">
@@ -350,20 +477,28 @@ export default function Dashboard() {
               
               {/* AI Insights Panel */}
               <div className="bg-gradient-to-br from-primary/10 via-primary/0 to-background border border-primary/20 rounded-xl p-6 space-y-4 shadow-sm">
-                <div className="flex items-center gap-2 text-primary">
-                  <Sparkles className="w-4.5 h-4.5" />
-                  <h2 className="font-semibold text-base">AI Insights</h2>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-primary">
+                    <Sparkles className="w-4.5 h-4.5" />
+                    <h2 className="font-semibold text-base">Brain Observations</h2>
+                  </div>
+                  {statsData.isProcessing && (
+                    <span className="flex items-center gap-1 text-[9px] text-primary font-bold animate-pulse">
+                      <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                      Analyzing...
+                    </span>
+                  )}
                 </div>
                 <div className="space-y-3">
-                  {statsData.insights.length > 0 ? (
-                    statsData.insights.map((insight, i) => (
-                      <div key={i} className="p-3.5 bg-card border border-border rounded-xl shadow-xs leading-relaxed">
+                  {statsData.aiInsights?.naturalLanguageInsights?.length > 0 ? (
+                    statsData.aiInsights.naturalLanguageInsights.map((insight, i) => (
+                      <div key={i} className="p-3.5 bg-card border border-border rounded-xl shadow-xs leading-relaxed hover:border-primary/10 transition-all">
                         <p className="text-[11px] font-medium text-foreground">{insight}</p>
                       </div>
                     ))
                   ) : (
                     <div className="text-center py-6 text-xs text-muted-foreground italic">
-                      Upload memories to generate AI second brain insights.
+                      Upload memories to generate AI second brain observations.
                     </div>
                   )}
                 </div>

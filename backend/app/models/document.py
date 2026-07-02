@@ -22,6 +22,7 @@ class DocumentModel(Base):
     organizations = Column(JSON, nullable=True) # List of strings
     locations = Column(JSON, nullable=True)     # List of strings
     emotions = Column(JSON, nullable=True)      # List of strings
+    category = Column(String, nullable=True)    # Projects, Skills, Certifications, Internships, Achievements, Academics, General
 
 class Document(Base):
     __tablename__ = "document"
@@ -32,6 +33,9 @@ class Document(Base):
     filetype = Column(String)
     filesize = Column(Integer)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
+    category = Column(String, nullable=True)    # Projects, Skills, Certifications, Internships, Achievements, Academics, General
+    status = Column(String, default="Queued")    # Queued, Uploading, Extracting Text, Generating Metadata, Creating Embeddings, Indexing, Completed, Failed
+    error_message = Column(String, nullable=True)
 
 
 class DocumentContent(Base):
@@ -67,6 +71,7 @@ class DocumentMetadata(Base):
     organizations = Column(String)
     locations = Column(String)
     emotions = Column(String)
+    category = Column(String, nullable=True)    # Projects, Skills, Certifications, Internships, Achievements, Academics, General
     generated_at = Column(DateTime, default=datetime.utcnow)
 
 

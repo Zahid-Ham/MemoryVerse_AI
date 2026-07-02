@@ -286,7 +286,7 @@ export default function Layout({ children }) {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 10 }}
-                      className="absolute right-0 mt-2 w-96 bg-popover border border-border rounded-xl shadow-xl py-2 z-50 max-h-[350px] overflow-y-auto divide-y divide-border/60"
+                      className="absolute right-0 mt-2 w-96 bg-popover border border-border rounded-xl shadow-xl py-2 z-50 max-h-[350px] overflow-y-auto divide-y divide-border/60" data-lenis-prevent
                     >
                       {isSearching ? (
                         <div className="px-4 py-3 text-xs text-muted-foreground flex items-center gap-2">

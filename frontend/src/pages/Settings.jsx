@@ -100,6 +100,10 @@ export default function Settings() {
 
     try {
       const response = await axios.post(`${API_URL}/api/system/reset-db`);
+      // Clear chatbot history
+      const { useChatStore } = await import('../store/chatStore');
+      useChatStore.getState().clearConversation();
+
       toast.success(response.data?.message || 'Database reset successfully');
       setFilesCount(0);
       setStorageUsed(0);

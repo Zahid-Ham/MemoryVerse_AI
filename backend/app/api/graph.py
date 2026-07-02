@@ -225,7 +225,7 @@ def get_node_summary(node_id: str, db: Session = Depends(get_db)):
         km = GroqKeyManager()
         def _call(client):
             resp = client.chat.completions.create(
-                model="llama3-8b-8192",
+                model="llama-3.1-8b-instant",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=80,
                 temperature=0.6,

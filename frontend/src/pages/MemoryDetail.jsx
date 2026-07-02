@@ -36,6 +36,14 @@ export default function MemoryDetail() {
   const [searchTerm, setSearchTerm] = useState('');
   const [copied, setCopied] = useState(false);
 
+  const handleBack = () => {
+    if (window.history.state && window.history.state.idx > 0) {
+      navigate(-1);
+    } else {
+      navigate('/memories');
+    }
+  };
+
   const fetchDocumentDetails = async () => {
     setLoading(true);
     setError(null);
@@ -60,7 +68,26 @@ export default function MemoryDetail() {
 
   useEffect(() => {
     fetchDocumentDetails();
+
+    const params = new URLSearchParams(window.location.search);
+    const highlight = params.get('highlight') || params.get('q');
+    if (highlight) {
+      setSearchTerm(decodeURIComponent(highlight));
+      setActiveTab('text');
+    }
   }, [id]);
+
+  useEffect(() => {
+    if (searchTerm && activeTab === 'text') {
+      const scrollTimer = setTimeout(() => {
+        const markEl = document.querySelector('mark');
+        if (markEl) {
+          markEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 600);
+      return () => clearTimeout(scrollTimer);
+    }
+  }, [searchTerm, activeTab, loading]);
 
   const handleCopyText = () => {
     if (!doc?.raw_text) return;
@@ -107,7 +134,9 @@ export default function MemoryDetail() {
   // Inline highlighter helper for text tab search
   const highlightText = (text, search) => {
     if (!search.trim()) return text;
-    const parts = text.split(new RegExp(`(${search})`, 'gi'));
+    // Escape special regex characters to prevent syntax errors
+    const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const parts = text.split(new RegExp(`(${escapedSearch})`, 'gi'));
     return (
       <span>
         {parts.map((part, i) =>
@@ -139,7 +168,7 @@ export default function MemoryDetail() {
           {error || 'Document not found'}
         </div>
         <button
-          onClick={() => navigate('/memories')}
+          onClick={handleBack}
           className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-secondary text-foreground hover:bg-secondary/80 border border-border transition-all"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -154,7 +183,7 @@ export default function MemoryDetail() {
       {/* Back button and Download */}
       <div className="flex items-center justify-between">
         <button
-          onClick={() => navigate('/memories')}
+          onClick={handleBack}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-secondary text-foreground hover:bg-secondary/80 border border-border transition-all"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -250,26 +279,38 @@ export default function MemoryDetail() {
                 )}
 
                 {previewData?.type === 'pdf' && (
-                  <div className="space-y-5">
-                    <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/10 rounded-xl text-primary text-xs">
-                      <Info className="w-4 h-4 shrink-0" />
-                      <span>PDF metadata parsed during file upload:</span>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Left Column: Metadata */}
+                    <div className="space-y-4 lg:col-span-1">
+                      <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/10 rounded-xl text-primary text-xs">
+                        <Info className="w-4 h-4 shrink-0" />
+                        <span>PDF metadata parsed:</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3">
+                        <div className="bg-secondary/20 border border-border rounded-xl p-4 space-y-1">
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Total Pages</span>
+                          <p className="text-lg font-bold text-foreground">{previewData.pages}</p>
+                        </div>
+                        
+                        {Object.entries(previewData.metadata || {}).map(([key, val]) => (
+                          val && (
+                            <div key={key} className="bg-secondary/15 border border-border/80 rounded-xl p-3.5 space-y-1">
+                              <span className="text-[10px] text-muted-foreground uppercase font-bold">{key}</span>
+                              <p className="text-xs font-semibold text-foreground break-all">{val}</p>
+                            </div>
+                          )
+                        ))}
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
-                      <div className="bg-secondary/20 border border-border rounded-xl p-4 space-y-1">
-                        <span className="text-[10px] text-muted-foreground uppercase font-bold">Total Pages</span>
-                        <p className="text-lg font-bold text-foreground">{previewData.pages}</p>
-                      </div>
-                      
-                      {Object.entries(previewData.metadata || {}).map(([key, val]) => (
-                        val && (
-                          <div key={key} className="bg-secondary/15 border border-border/80 rounded-xl p-4 space-y-1">
-                            <span className="text-[10px] text-muted-foreground uppercase font-bold">{key}</span>
-                            <p className="text-xs font-semibold text-foreground break-all">{val}</p>
-                          </div>
-                        )
-                      ))}
+                    {/* Right Column: PDF Viewer */}
+                    <div className="lg:col-span-2 h-[600px] border border-border rounded-xl overflow-hidden bg-background shadow-inner">
+                      <iframe
+                        src={`${API_URL}/api/files/${doc.id}/raw`}
+                        title={doc.filename}
+                        className="w-full h-full border-none"
+                      />
                     </div>
                   </div>
                 )}
@@ -317,7 +358,7 @@ export default function MemoryDetail() {
                 </div>
 
                 {/* Text View Body */}
-                <div className="bg-secondary/10 border border-border rounded-xl p-5 font-mono text-[11px] text-foreground leading-relaxed overflow-y-auto max-h-[50vh] whitespace-pre-wrap">
+                <div className="bg-secondary/10 border border-border rounded-xl p-5 font-mono text-[11px] text-foreground leading-relaxed overflow-y-auto max-h-[50vh] whitespace-pre-wrap" data-lenis-prevent>
                   {doc.raw_text ? (
                     highlightText(doc.raw_text, searchTerm)
                   ) : (

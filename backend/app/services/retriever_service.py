@@ -63,7 +63,8 @@ class RetrieverService:
             sources.append({
                 "document_id": doc_id,
                 "filename": filename,
-                "chunk_index": chunk_index
+                "chunk_index": chunk_index,
+                "text": chunk_text
             })
 
         # Build context by grouping chunks under their parent document

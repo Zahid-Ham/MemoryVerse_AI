@@ -335,12 +335,35 @@ function RelationshipsCanvas() {
 
   // ── Initial load ─────────────────────────────────────────────────────────
   useEffect(() => {
-    axios.get(`${API_URL}/api/graph/root`).then(res => {
-      rootDataRef.current = res.data;
-      rebuildGraph();
-      setTimeout(() => fitView({ padding: 0.2, duration: 600 }), 100);
-    }).catch(err => console.error('Root load failed', err));
-  }, []);
+    const loadRoot = () => {
+      axios.get(`${API_URL}/api/graph/root`).then(res => {
+        rootDataRef.current = res.data;
+        rebuildGraph();
+        setTimeout(() => fitView({ padding: 0.2, duration: 600 }), 100);
+      }).catch(err => console.error('Root load failed', err));
+    };
+
+    loadRoot();
+
+    const handleRefresh = () => {
+      rootDataRef.current = null;
+      categoryDataRef.current = {};
+      entityDataRef.current = {};
+      customPositionsRef.current = {};
+      setExpandedCategories(new Set());
+      setExpandedEntities(new Set());
+      setSelectedNode(null);
+      setBreadcrumbs([]);
+      setNodes([]);
+      setEdges([]);
+      loadRoot();
+    };
+
+    window.addEventListener('refresh-data', handleRefresh);
+    return () => {
+      window.removeEventListener('refresh-data', handleRefresh);
+    };
+  }, [fitView, rebuildGraph, setEdges, setNodes]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handleRootClick = useCallback(() => {

@@ -20,13 +20,36 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export default function Search() {
   const navigate = useNavigate();
-  const [query, setQuery] = useState('');
-  const [searchType, setSearchType] = useState('semantic'); // 'semantic' | 'keyword'
+  const [query, setQuery] = useState(() => sessionStorage.getItem('mv_search_query') || '');
+  const [searchType, setSearchType] = useState(() => sessionStorage.getItem('mv_search_type') || 'semantic'); // 'semantic' | 'keyword'
   
   // Search states: 'idle' | 'searching' | 'results' | 'empty'
-  const [searchState, setSearchState] = useState('idle');
-  const [results, setResults] = useState([]);
+  const [searchState, setSearchState] = useState(() => sessionStorage.getItem('mv_search_state') || 'idle');
+  const [results, setResults] = useState(() => {
+    try {
+      const stored = sessionStorage.getItem('mv_search_results');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
   const [suggestions, setSuggestions] = useState([]);
+
+  useEffect(() => {
+    sessionStorage.setItem('mv_search_query', query);
+  }, [query]);
+
+  useEffect(() => {
+    sessionStorage.setItem('mv_search_type', searchType);
+  }, [searchType]);
+
+  useEffect(() => {
+    sessionStorage.setItem('mv_search_state', searchState);
+  }, [searchState]);
+
+  useEffect(() => {
+    sessionStorage.setItem('mv_search_results', JSON.stringify(results));
+  }, [results]);
 
   const fetchSuggestions = async () => {
     try {
@@ -290,7 +313,10 @@ export default function Search() {
                             </span>
                           )}
                           <button
-                            onClick={() => navigate(`/memories/${result.document_id || result.id}`)}
+                            onClick={() => {
+                              const highlightText = searchType === 'semantic' ? result.chunk_text : query;
+                              navigate(`/memories/${result.document_id || result.id}?highlight=${encodeURIComponent(highlightText || '')}`);
+                            }}
                             className="inline-flex items-center gap-1 px-2.5 py-1 bg-secondary text-foreground hover:bg-primary hover:text-primary-foreground text-[10px] font-bold rounded-lg border border-border hover:border-transparent transition-all"
                           >
                             Open

@@ -44,6 +44,14 @@ class GroqMetadataService:
         You MUST extract:
         - title (string): A short, descriptive title.
         - summary (string): A brief, 1-2 sentence summary.
+        - category (string): Document classification. You MUST classify this document into EXACTLY one of these categories based on these guidelines:
+          * "Academics": School/college/university lecture slides, class notes, study material, syllabus, textbooks, homework, quizzes, research papers, tutorials, presentations on academic/scientific concepts (e.g., probability, math, physics, biology, history).
+          * "Projects": Project proposals, software repositories, README files, system design specifications, portfolios, source code documentation, building guides, or case studies of custom built systems.
+          * "Internships": Internship offer letters, reports, daily logs, or reviews related to work done during internships.
+          * "Certifications": Course completion certificates, exam results, professional credentials, licenses, or verification letters.
+          * "Skills": Skill lists, programming language cheatsheets, resume skill matrices, or dedicated learning guides for specific tools/languages.
+          * "Achievements": Awards, contest rankings, scholarships, recommendation letters, honors, or certificates of merit.
+          * "General": Anything else that doesn't fit the above (e.g., meeting minutes, personal journals, emails, templates, random notes).
         - tags (list of strings): Up to 5 relevant tags/topics.
         - people (list of strings): People mentioned.
         - organizations (list of strings): Companies or institutions.
@@ -57,6 +65,7 @@ class GroqMetadataService:
         {{
           "title": "Title",
           "summary": "Summary text",
+          "category": "Academics",
           "tags": ["tag1", "tag2"],
           "people": ["Person Name"],
           "organizations": ["Org Name"],
@@ -96,9 +105,26 @@ class GroqMetadataService:
         # 6. Parse JSON and Fallback logic
         if not metadata_json:
             # Fallback metadata if Groq completely fails
+            fn_lower = filename.lower()
+            if "cert" in fn_lower:
+                fallback_cat = "Certifications"
+            elif "intern" in fn_lower or "offer" in fn_lower:
+                fallback_cat = "Internships"
+            elif "project" in fn_lower or "report" in fn_lower:
+                fallback_cat = "Projects"
+            elif "skill" in fn_lower or "resume" in fn_lower:
+                fallback_cat = "Skills"
+            elif "achievement" in fn_lower or "award" in fn_lower:
+                fallback_cat = "Achievements"
+            elif "academic" in fn_lower or "course" in fn_lower or "grade" in fn_lower:
+                fallback_cat = "Academics"
+            else:
+                fallback_cat = "General"
+
             metadata_json = {
                 "title": filename,
                 "summary": "Document uploaded successfully. Content analysis is pending.",
+                "category": fallback_cat,
                 "tags": ["uploaded"],
                 "people": [],
                 "organizations": [],
@@ -106,12 +132,23 @@ class GroqMetadataService:
                 "emotions": ["neutral"]
             }
 
+        # Normalize category
+        allowed_cats = {"Projects", "Skills", "Certifications", "Internships", "Achievements", "Academics", "General"}
+        extracted_cat = metadata_json.get("category", "General")
+        matched_cat = "General"
+        for ac in allowed_cats:
+            if ac.lower() == str(extracted_cat).lower().strip():
+                matched_cat = ac
+                break
+        metadata_json["category"] = matched_cat
+
         # 7. Persist to database (join lists into comma-separated strings)
         db_meta = DocumentMetadata(
             id=str(uuid.uuid4()),
             document_id=document_id,
             title=metadata_json.get("title", filename),
             summary=metadata_json.get("summary", ""),
+            category=metadata_json.get("category", "General"),
             tags=",".join(metadata_json.get("tags", [])),
             people=",".join(metadata_json.get("people", [])),
             organizations=",".join(metadata_json.get("organizations", [])),
@@ -123,6 +160,14 @@ class GroqMetadataService:
         try:
             db.add(db_meta)
             db.commit()
+            
+            # Update category on parent Document record too
+            from app.models.document import Document
+            doc = db.query(Document).filter(Document.id == document_id).first()
+            if doc:
+                doc.category = metadata_json.get("category", "General")
+                db.add(doc)
+                db.commit()
         except Exception as e:
             db.rollback()
             logger.error(f"Failed to persist document metadata for {document_id}: {str(e)}")
@@ -132,6 +177,7 @@ class GroqMetadataService:
             "document_id": document_id,
             "title": db_meta.title,
             "summary": db_meta.summary,
+            "category": db_meta.category,
             "tags": metadata_json.get("tags", []),
             "people": metadata_json.get("people", []),
             "organizations": metadata_json.get("organizations", []),

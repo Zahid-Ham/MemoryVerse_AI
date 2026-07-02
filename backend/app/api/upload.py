@@ -64,7 +64,8 @@ async def upload_files(
                 filename=file.filename,
                 filepath=file_path,
                 filetype=file.content_type,
-                filesize=file_size
+                filesize=file_size,
+                status="Queued"
             )
             db.add(new_doc)
             db.commit()
@@ -101,8 +102,29 @@ async def upload_files(
 
 @router.get("")
 def list_files(db: Session = Depends(get_db)):
-    """Returns a list of all uploaded documents."""
-    return db.query(Document).order_by(Document.uploaded_at.desc()).all()
+    """Returns a list of all uploaded documents with metadata included."""
+    docs = db.query(Document).order_by(Document.uploaded_at.desc()).all()
+    results = []
+    for doc in docs:
+        meta = db.query(DocumentMetadata).filter(DocumentMetadata.document_id == doc.id).first()
+        results.append({
+            "id": doc.id,
+            "filename": doc.filename,
+            "filepath": doc.filepath,
+            "filetype": doc.filetype,
+            "filesize": doc.filesize,
+            "uploaded_at": doc.uploaded_at,
+            "category": doc.category or "General",
+            "status": doc.status or "Queued",
+            "error_message": doc.error_message,
+            "metadata": {
+                "summary": meta.summary if meta else None,
+                "tags": [t.strip() for t in meta.tags.split(",") if t.strip()] if meta and meta.tags else [],
+                "people": [p.strip() for p in meta.people.split(",") if p.strip()] if meta and meta.people else [],
+                "locations": [l.strip() for l in meta.locations.split(",") if l.strip()] if meta and meta.locations else [],
+            } if meta else None
+        })
+    return results
 
 @router.get("/{id}")
 def get_file(id: str, db: Session = Depends(get_db)):
@@ -119,6 +141,7 @@ def get_file(id: str, db: Session = Depends(get_db)):
         metadata_payload = {
             "title": meta.title,
             "summary": meta.summary,
+            "category": meta.category or "General",
             "tags": [t.strip() for t in meta.tags.split(",") if t.strip()] if meta.tags else [],
             "people": [p.strip() for p in meta.people.split(",") if p.strip()] if meta.people else [],
             "organizations": [o.strip() for o in meta.organizations.split(",") if o.strip()] if meta.organizations else [],
@@ -134,6 +157,7 @@ def get_file(id: str, db: Session = Depends(get_db)):
         "filetype": doc.filetype,
         "filesize": doc.filesize,
         "uploaded_at": doc.uploaded_at,
+        "category": doc.category or "General",
         "raw_text": content.raw_text if content else None,
         "text_length": content.text_length if content else 0,
         "metadata": metadata_payload
@@ -141,13 +165,20 @@ def get_file(id: str, db: Session = Depends(get_db)):
 
 @router.delete("/{id}")
 def delete_file(id: str, db: Session = Depends(get_db)):
-    """Deletes a file from disk and database."""
+    """Deletes a file from disk/Cloudinary and database."""
     doc = db.query(Document).filter(Document.id == id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="File not found")
         
-    # Remove from local storage
-    if os.path.exists(doc.filepath):
+    # Remove from Cloudinary if remote url
+    if doc.filepath and doc.filepath.startswith("http"):
+        try:
+            from app.services.cloudinary_service import CloudinaryService
+            CloudinaryService.delete_file(doc.filepath)
+        except Exception:
+            pass
+    # Remove from local storage if local
+    elif doc.filepath and os.path.exists(doc.filepath):
         try:
             os.remove(doc.filepath)
         except Exception:
@@ -164,28 +195,63 @@ def delete_file(id: str, db: Session = Depends(get_db)):
 def get_raw_file(id: str, db: Session = Depends(get_db)):
     """Returns the raw file content."""
     doc = db.query(Document).filter(Document.id == id).first()
-    if not doc or not os.path.exists(doc.filepath):
+    if not doc:
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    if doc.filepath.startswith("http"):
+        from fastapi.responses import RedirectResponse
+        from app.services.cloudinary_service import CloudinaryService
+        signed_url = CloudinaryService.get_signed_url(doc.filepath)
+        return RedirectResponse(url=signed_url)
+        
+    if not os.path.exists(doc.filepath):
         raise HTTPException(status_code=404, detail="File not found on disk")
-    return FileResponse(doc.filepath, media_type=doc.filetype, filename=doc.filename)
+    return FileResponse(doc.filepath, media_type=doc.filetype, filename=doc.filename, content_disposition_type="inline")
 
 @router.get("/{id}/preview")
 def get_file_preview(id: str, db: Session = Depends(get_db)):
     """Returns structured preview data for the file based on its type."""
+    import io
+    import urllib.request
+    
     doc = db.query(Document).filter(Document.id == id).first()
-    if not doc or not os.path.exists(doc.filepath):
-        raise HTTPException(status_code=404, detail="File not found on disk")
+    if not doc:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Fetch file bytes from remote Cloudinary or local path
+    if doc.filepath.startswith("http"):
+        try:
+            from app.services.cloudinary_service import CloudinaryService
+            signed_url = CloudinaryService.get_signed_url(doc.filepath)
+            req = urllib.request.Request(
+                signed_url,
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
+            )
+            with urllib.request.urlopen(req) as response:
+                file_bytes = response.read()
+        except Exception as download_err:
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Failed to fetch remote file from Cloudinary: {str(download_err)}")
+    else:
+        if not os.path.exists(doc.filepath):
+            raise HTTPException(status_code=404, detail="File not found on disk")
+        try:
+            with open(doc.filepath, "rb") as f:
+                file_bytes = f.read()
+        except Exception as read_err:
+            raise HTTPException(status_code=500, detail=f"Failed to read local file: {str(read_err)}")
 
     if doc.filetype == "text/plain":
         try:
-            with open(doc.filepath, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read(50 * 1024)  # Limit to 50KB
+            content = file_bytes.decode("utf-8", errors="ignore")[:50 * 1024]
             return {"type": "txt", "content": content}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to read text file: {str(e)}")
 
     elif doc.filetype == "application/pdf":
         try:
-            reader = PdfReader(doc.filepath)
+            reader = PdfReader(io.BytesIO(file_bytes))
             meta = reader.metadata
             pages = len(reader.pages)
             
@@ -211,10 +277,16 @@ def get_file_preview(id: str, db: Session = Depends(get_db)):
 
 @router.delete("")
 def delete_all_files(db: Session = Depends(get_db)):
-    """Deletes all uploaded files from storage and database."""
+    """Deletes all uploaded files from storage/Cloudinary and database."""
     docs = db.query(Document).all()
     for doc in docs:
-        if os.path.exists(doc.filepath):
+        if doc.filepath and doc.filepath.startswith("http"):
+            try:
+                from app.services.cloudinary_service import CloudinaryService
+                CloudinaryService.delete_file(doc.filepath)
+            except Exception:
+                pass
+        elif doc.filepath and os.path.exists(doc.filepath):
             try:
                 os.remove(doc.filepath)
             except Exception:
@@ -292,12 +364,23 @@ async def import_demo_dataset(
             
         file_size = os.path.getsize(file_path)
 
+        # Determine demo category
+        demo_cat = "General"
+        if "Project" in doc["filename"]:
+            demo_cat = "Projects"
+        elif "Internship" in doc["filename"]:
+            demo_cat = "Internships"
+        elif "Certification" in doc["filename"]:
+            demo_cat = "Certifications"
+
         new_doc = Document(
             id=file_id,
             filename=doc["filename"],
             filepath=file_path,
             filetype="text/plain",
-            filesize=file_size
+            filesize=file_size,
+            category=demo_cat,
+            status="Queued"
         )
         db.add(new_doc)
         db.commit()
@@ -318,4 +401,50 @@ async def import_demo_dataset(
         })
 
     return {"message": "Importing demo dataset in the background...", "results": imported}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Document Status & Retry Router
+# ─────────────────────────────────────────────────────────────────────────────
+doc_router = APIRouter(prefix="/api/documents", tags=["documents"])
+
+@doc_router.get("/{id}/status")
+def get_document_status(id: str, db: Session = Depends(get_db)):
+    """Returns the processing status of a specific document."""
+    doc = db.query(Document).filter(Document.id == id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {
+        "id": doc.id,
+        "filename": doc.filename,
+        "status": doc.status or "Queued",
+        "error_message": doc.error_message
+    }
+
+@doc_router.post("/{id}/retry")
+def retry_document_processing(
+    id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Retries processing for a failed document."""
+    doc = db.query(Document).filter(Document.id == id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    # Reset status to Queued and clear error message
+    doc.status = "Queued"
+    doc.error_message = None
+    db.add(doc)
+    db.commit()
+    
+    # Re-queue background task
+    background_tasks.add_task(
+        ExtractionService.run_extraction_task,
+        doc.filepath,
+        doc.filetype,
+        doc.id
+    )
+    
+    return {"message": "Processing retried successfully", "status": "Queued"}
 

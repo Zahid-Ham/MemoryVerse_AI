@@ -107,6 +107,17 @@ class VectorStoreService:
             logger.error(f"Error deleting vectors for document {document_id}: {str(e)}", exc_info=True)
 
     @classmethod
+    def reset_store(cls):
+        """Deletes the entire collection from ChromaDB to clear all stored vectors."""
+        try:
+            client = cls.get_client()
+            client.delete_collection("memoryverse_documents")
+            cls._collection = None
+            logger.info("ChromaDB collection 'memoryverse_documents' deleted successfully.")
+        except Exception as e:
+            logger.error(f"Error resetting ChromaDB collection: {str(e)}", exc_info=True)
+
+    @classmethod
     def update_document(cls, db: Session, document_id: str, chunks: List[Any], embeddings: List[List[float]]):
         """Updates a document's vector store index by replacing existing vectors."""
         cls.insert_chunks(db, document_id, chunks, embeddings)

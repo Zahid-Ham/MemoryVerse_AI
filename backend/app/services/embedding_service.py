@@ -152,11 +152,21 @@ class EmbeddingService:
             }
 
         try:
+            from app.models.document import Document
+            doc = db.query(Document).filter(Document.id == document_id).first()
+            if doc:
+                doc.status = "Creating Embeddings"
+                db.commit()
+
             # 4. Generate embeddings
             embed_provider = SentenceTransformersEmbeddingProvider()
 
             texts = [c.chunk_text for c in chunks]
             embeddings = embed_provider.embed_documents(texts)
+
+            if doc:
+                doc.status = "Indexing"
+                db.commit()
 
             # 5. Index in ChromaDB using VectorStoreService
             from app.services.vector_store_service import VectorStoreService

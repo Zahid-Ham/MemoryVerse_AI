@@ -12,14 +12,21 @@ import {
   HardDrive,
   FileImage,
   RefreshCw,
-  FolderOpen
+  FolderOpen,
+  Search,
+  Tag,
+  User,
+  MapPin,
+  Sparkles,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export default function Timeline() {
-  const [viewMode, setViewMode] = useState('timeline'); // 'timeline' | 'feed' | 'grouped'
-  const [groupBy, setGroupBy] = useState('date'); // 'date' | 'month' | 'year' | 'title' | 'people' | 'locations' | 'emotions'
+  const [activeMode, setActiveMode] = useState('chrono'); // 'chrono' | 'topic' | 'person' | 'location'
+  const [searchQuery, setSearchQuery] = useState('');
   
   // Filters
   const [selectedTag, setSelectedTag] = useState('all');
@@ -37,11 +44,14 @@ export default function Timeline() {
   });
   const [isLoading, setIsLoading] = useState(true);
 
+  // Group expand/collapse state
+  const [expandedGroups, setExpandedGroups] = useState({});
+
   // Fetch timeline data from FastAPI
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const params = { group_by: groupBy };
+      const params = {};
       if (selectedTag !== 'all') params.tag = selectedTag;
       if (selectedPerson !== 'all') params.person = selectedPerson;
       if (selectedLocation !== 'all') params.location = selectedLocation;
@@ -69,64 +79,122 @@ export default function Timeline() {
     return () => {
       window.removeEventListener('refresh-data', handleRefresh);
     };
-  }, [groupBy, selectedTag, selectedPerson, selectedLocation, selectedEmotion]);
-
-  const formatSize = (bytes) => {
-    if (!bytes) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
+  }, [selectedTag, selectedPerson, selectedLocation, selectedEmotion]);
 
   const getFileIcon = (filetype) => {
-    if (!filetype) return <FileText className="w-4 h-4 text-purple-500" />;
+    if (!filetype) return <FileText className="w-4 h-4 text-purple-500 font-semibold" />;
     if (filetype.startsWith('image/')) {
-      return <FileImage className="w-4 h-4 text-emerald-500" />;
+      return <FileImage className="w-4 h-4 text-emerald-500 font-semibold" />;
     }
     if (filetype === 'application/pdf') {
-      return <FileText className="w-4 h-4 text-rose-500" />;
+      return <FileText className="w-4 h-4 text-rose-500 font-semibold" />;
     }
     if (filetype === 'text/plain') {
-      return <FileText className="w-4 h-4 text-blue-500" />;
+      return <FileText className="w-4 h-4 text-blue-500 font-semibold" />;
     }
-    return <FileText className="w-4 h-4 text-purple-500" />;
+    return <FileText className="w-4 h-4 text-purple-500 font-semibold" />;
   };
 
-  // Grouped uploads logic (derived client side from filtered activities list)
-  const getGroupedUploads = () => {
-    const groups = {};
-    (timelineData.activity_feed || []).forEach((item) => {
-      let label = "Other Files";
-      if (item.type.startsWith('image/')) label = 'Images';
-      else if (item.type === 'application/pdf') label = 'PDFs';
-      else if (item.type === 'text/plain') label = 'Text Files';
-      else if (item.type.includes('word') || item.type.includes('document')) label = 'Documents';
+  // Milestone check logic
+  const isMilestone = (item) => {
+    const milestoneKeywords = [
+      'milestone', 'graduation', 'graduated', 'degree', 'award', 'certificate', 
+      'certification', 'hired', 'joined', 'offer', 'started', 'completed', 
+      'launch', 'launched', 'promotion', 'promoted', 'first day', 'achievement',
+      'internship', 'interview'
+    ];
+    const text = `${item.title} ${item.summary || ''}`.toLowerCase();
+    return milestoneKeywords.some(keyword => text.includes(keyword));
+  };
 
-      if (!groups[label]) {
-        groups[label] = {
-          count: 0,
-          totalSize: 0,
-          files: [],
-          icon: getFileIcon(item.type)
-        };
+  // Client-side Search Filter
+  const filteredFeed = React.useMemo(() => {
+    let feed = timelineData.activity_feed || [];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      feed = feed.filter(item => 
+        item.title.toLowerCase().includes(q) || 
+        (item.summary && item.summary.toLowerCase().includes(q))
+      );
+    }
+    return feed;
+  }, [timelineData.activity_feed, searchQuery]);
+
+  // Client-side grouping based on activeMode
+  const groups = React.useMemo(() => {
+    const grps = {};
+    filteredFeed.forEach((item) => {
+      if (activeMode === 'chrono') {
+        const date = new Date(item.created_at || item.uploaded_at);
+        const label = date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+        if (!grps[label]) grps[label] = [];
+        grps[label].push(item);
+      } else if (activeMode === 'topic') {
+        if (item.tags && item.tags.length > 0) {
+          item.tags.forEach((tag) => {
+            const label = `#${tag}`;
+            if (!grps[label]) grps[label] = [];
+            grps[label].push(item);
+          });
+        } else {
+          if (!grps['Untagged']) grps['Untagged'] = [];
+          grps['Untagged'].push(item);
+        }
+      } else if (activeMode === 'person') {
+        if (item.people && item.people.length > 0) {
+          item.people.forEach((p) => {
+            const label = p;
+            if (!grps[label]) grps[label] = [];
+            grps[label].push(item);
+          });
+        } else {
+          if (!grps['Unspecified People']) grps['Unspecified People'] = [];
+          grps['Unspecified People'].push(item);
+        }
+      } else if (activeMode === 'location') {
+        if (item.locations && item.locations.length > 0) {
+          item.locations.forEach((l) => {
+            const label = l;
+            if (!grps[label]) grps[label] = [];
+            grps[label].push(item);
+          });
+        } else {
+          if (!grps['Unspecified Locations']) grps['Unspecified Locations'] = [];
+          grps['Unspecified Locations'].push(item);
+        }
       }
-      
-      const sizeMatch = item.summary.match(/size (\d+) bytes/);
-      const size = sizeMatch ? parseInt(sizeMatch[1], 10) : 0;
-      
-      groups[label].count += 1;
-      groups[label].totalSize += size;
-      groups[label].files.push(item);
     });
-    return groups;
+    return grps;
+  }, [filteredFeed, activeMode]);
+
+  // Expand all groups by default on mode/group changes
+  useEffect(() => {
+    const initialExpanded = {};
+    Object.keys(groups).forEach(key => {
+      initialExpanded[key] = true;
+    });
+    setExpandedGroups(initialExpanded);
+  }, [activeMode, groups]);
+
+  const toggleGroup = (key) => {
+    setExpandedGroups(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
   };
 
-  const groupedTimeline = timelineData.grouped || {};
-  const groupedUploads = getGroupedUploads();
+  const getModeIcon = () => {
+    switch (activeMode) {
+      case 'chrono': return <Clock className="w-4 h-4" />;
+      case 'topic': return <Tag className="w-4 h-4" />;
+      case 'person': return <User className="w-4 h-4" />;
+      case 'location': return <MapPin className="w-4 h-4" />;
+      default: return <Clock className="w-4 h-4" />;
+    }
+  };
 
   return (
-    <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-8">
+    <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -136,143 +204,152 @@ export default function Timeline() {
           </p>
         </div>
 
-        {/* View Toggles */}
+        {/* Mode Toggles */}
         <div className="flex bg-secondary/80 p-1 rounded-lg border border-border self-start sm:self-auto text-xs font-semibold">
           <button
-            onClick={() => setViewMode('timeline')}
+            onClick={() => setActiveMode('chrono')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
-              viewMode === 'timeline'
+              activeMode === 'chrono'
                 ? 'bg-card text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <List className="w-3.5 h-3.5" />
-            Timeline Cards
+            <Clock className="w-3.5 h-3.5" />
+            Chronological
           </button>
           <button
-            onClick={() => setViewMode('feed')}
+            onClick={() => setActiveMode('topic')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
-              viewMode === 'feed'
+              activeMode === 'topic'
                 ? 'bg-card text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <Activity className="w-3.5 h-3.5" />
-            Activity Feed
+            <Tag className="w-3.5 h-3.5" />
+            By Topic
           </button>
           <button
-            onClick={() => setViewMode('grouped')}
+            onClick={() => setActiveMode('person')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
-              viewMode === 'grouped'
+              activeMode === 'person'
                 ? 'bg-card text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <Grid className="w-3.5 h-3.5" />
-            Grouped Uploads
+            <User className="w-3.5 h-3.5" />
+            By Person
+          </button>
+          <button
+            onClick={() => setActiveMode('location')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
+              activeMode === 'location'
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <MapPin className="w-3.5 h-3.5" />
+            By Location
           </button>
         </div>
       </div>
 
       {/* Filters Bar */}
-      <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
-            <Filter className="w-3.5 h-3.5" />
-            Filters:
-          </span>
-
-          {/* People Filter */}
-          <div className="relative">
-            <select
-              value={selectedPerson}
-              onChange={(e) => setSelectedPerson(e.target.value)}
-              className="pl-3 pr-8 py-1.5 text-xs bg-secondary border border-border rounded-lg focus:outline-none focus:border-primary appearance-none cursor-pointer font-medium"
-            >
-              <option value="all">All People</option>
-              {availableFilters.people.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
+      <div className="bg-card border border-border rounded-xl p-4 space-y-4 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center gap-4">
+          {/* Search bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search documents or activities..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-1.5 rounded-lg text-xs bg-secondary border border-border focus:border-primary focus:outline-none transition-all font-semibold"
+            />
           </div>
 
-          {/* Tags Filter */}
-          <div className="relative">
-            <select
-              value={selectedTag}
-              onChange={(e) => setSelectedTag(e.target.value)}
-              className="pl-3 pr-8 py-1.5 text-xs bg-secondary border border-border rounded-lg focus:outline-none focus:border-primary appearance-none cursor-pointer font-medium"
-            >
-              <option value="all">All Tags</option>
-              {availableFilters.tags.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1 shrink-0">
+              <Filter className="w-3.5 h-3.5" />
+              Filters:
+            </span>
 
-          {/* Locations Filter */}
-          <div className="relative">
-            <select
-              value={selectedLocation}
-              onChange={(e) => setSelectedLocation(e.target.value)}
-              className="pl-3 pr-8 py-1.5 text-xs bg-secondary border border-border rounded-lg focus:outline-none focus:border-primary appearance-none cursor-pointer font-medium"
-            >
-              <option value="all">All Locations</option>
-              {availableFilters.locations.map((l) => (
-                <option key={l} value={l}>{l}</option>
-              ))}
-            </select>
-          </div>
+            {/* People Filter */}
+            <div className="relative">
+              <select
+                value={selectedPerson}
+                onChange={(e) => setSelectedPerson(e.target.value)}
+                className="pl-3 pr-8 py-1.5 text-xs bg-secondary border border-border rounded-lg focus:outline-none focus:border-primary appearance-none cursor-pointer font-medium"
+              >
+                <option value="all">All People</option>
+                {availableFilters.people.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
 
-          {/* Emotions Filter */}
-          <div className="relative">
-            <select
-              value={selectedEmotion}
-              onChange={(e) => setSelectedEmotion(e.target.value)}
-              className="pl-3 pr-8 py-1.5 text-xs bg-secondary border border-border rounded-lg focus:outline-none focus:border-primary appearance-none cursor-pointer font-medium"
-            >
-              <option value="all">All Emotions</option>
-              {availableFilters.emotions.map((e) => (
-                <option key={e} value={e}>{e}</option>
-              ))}
-            </select>
-          </div>
+            {/* Tags Filter */}
+            <div className="relative">
+              <select
+                value={selectedTag}
+                onChange={(e) => setSelectedTag(e.target.value)}
+                className="pl-3 pr-8 py-1.5 text-xs bg-secondary border border-border rounded-lg focus:outline-none focus:border-primary appearance-none cursor-pointer font-medium"
+              >
+                <option value="all">All Tags</option>
+                {availableFilters.tags.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
 
-          {/* Group By selector */}
-          <div className="relative border-l border-border pl-3 flex items-center gap-2">
-            <span className="text-xs text-muted-foreground font-semibold">Group By:</span>
-            <select
-              value={groupBy}
-              onChange={(e) => setGroupBy(e.target.value)}
-              className="pl-3 pr-8 py-1.5 text-xs bg-secondary border border-border rounded-lg focus:outline-none focus:border-primary appearance-none cursor-pointer font-semibold text-primary"
-            >
-              <option value="date">Upload Date</option>
-              <option value="month">Month</option>
-              <option value="year">Year</option>
-              <option value="title">Document Title</option>
-              <option value="people">People</option>
-              <option value="locations">Locations</option>
-              <option value="emotions">Emotions</option>
-            </select>
-          </div>
+            {/* Locations Filter */}
+            <div className="relative">
+              <select
+                value={selectedLocation}
+                onChange={(e) => setSelectedLocation(e.target.value)}
+                className="pl-3 pr-8 py-1.5 text-xs bg-secondary border border-border rounded-lg focus:outline-none focus:border-primary appearance-none cursor-pointer font-medium"
+              >
+                <option value="all">All Locations</option>
+                {availableFilters.locations.map((l) => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+            </div>
 
-          {(selectedTag !== 'all' || selectedPerson !== 'all' || selectedLocation !== 'all' || selectedEmotion !== 'all') && (
-            <button
-              onClick={() => {
-                setSelectedTag('all');
-                setSelectedPerson('all');
-                setSelectedLocation('all');
-                setSelectedEmotion('all');
-              }}
-              className="text-xs font-semibold text-primary hover:underline ml-2"
-            >
-              Clear filters
-            </button>
-          )}
+            {/* Emotions Filter */}
+            <div className="relative">
+              <select
+                value={selectedEmotion}
+                onChange={(e) => setSelectedEmotion(e.target.value)}
+                className="pl-3 pr-8 py-1.5 text-xs bg-secondary border border-border rounded-lg focus:outline-none focus:border-primary appearance-none cursor-pointer font-medium"
+              >
+                <option value="all">All Emotions</option>
+                {availableFilters.emotions.map((e) => (
+                  <option key={e} value={e}>{e}</option>
+                ))}
+              </select>
+            </div>
+
+            {(selectedTag !== 'all' || selectedPerson !== 'all' || selectedLocation !== 'all' || selectedEmotion !== 'all' || searchQuery.trim() !== '') && (
+              <button
+                onClick={() => {
+                  setSelectedTag('all');
+                  setSelectedPerson('all');
+                  setSelectedLocation('all');
+                  setSelectedEmotion('all');
+                  setSearchQuery('');
+                }}
+                className="text-xs font-semibold text-primary hover:underline ml-2"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="text-xs text-muted-foreground">
-          Showing {timelineData.activity_feed.length} activities
+        <div className="text-[10px] text-muted-foreground font-semibold flex items-center justify-between">
+          <span>Showing {filteredFeed.length} activities</span>
+          <span>Active Mode: <span className="text-primary capitalize">{activeMode}</span></span>
         </div>
       </div>
 
@@ -292,7 +369,7 @@ export default function Timeline() {
             </div>
           ))}
         </div>
-      ) : timelineData.activity_feed.length === 0 ? (
+      ) : filteredFeed.length === 0 ? (
         <div className="text-center py-20 bg-card border border-dashed border-border rounded-2xl max-w-md mx-auto space-y-4">
           <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center text-muted-foreground mx-auto">
             <FolderOpen className="w-6 h-6" />
@@ -300,180 +377,132 @@ export default function Timeline() {
           <div>
             <h3 className="font-semibold text-sm">No activity recorded</h3>
             <p className="text-xs text-muted-foreground mt-1">
-              There are no uploads matching your current filter choices.
+              There are no uploads matching your current filter choices or search.
             </p>
           </div>
         </div>
       ) : (
-        <div className="min-h-96">
-          <AnimatePresence mode="wait">
+        <div className="min-h-96 space-y-6">
+          {Object.entries(groups).map(([groupTitle, items]) => {
+            const isExpanded = expandedGroups[groupTitle] !== false;
             
-            {/* Timeline Cards View */}
-            {viewMode === 'timeline' && (
-              <motion.div
-                key="timeline"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="space-y-8"
-              >
-                {Object.entries(groupedTimeline).map(([periodTitle, items]) => (
-                  <div key={periodTitle} className="space-y-4">
-                    <h2 className="text-xs font-bold text-primary/80 uppercase tracking-widest flex items-center gap-2">
-                      <Clock className="w-3.5 h-3.5 text-primary" />
-                      {periodTitle}
-                    </h2>
-                    <div className="border-l border-border pl-6 space-y-6 ml-2.5">
-                      {items.map((item) => (
-                        <motion.div
-                          key={item.id}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="relative group bg-card border border-border/80 hover:border-primary/20 p-5 rounded-xl transition-all shadow-sm"
-                        >
-                          {/* Timeline dot */}
-                          <div className="absolute -left-[31px] top-6 w-2.5 h-2.5 rounded-full bg-border group-hover:bg-primary border-4 border-background transition-all" />
-                          
-                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                            <div className="space-y-2 flex-1">
-                              <span className="text-[10px] text-muted-foreground font-semibold">
-                                {item.created_at ? new Date(item.created_at).toLocaleDateString(undefined, {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  hour: '2-digit',
-                                  minute: '2-digit'
-                                }) : ''}
-                              </span>
-                              <h3 className="font-semibold text-sm flex items-center gap-1.5 text-foreground mt-0.5">
-                                {getFileIcon(item.type)}
-                                {item.title}
-                              </h3>
-                              <p className="text-xs text-muted-foreground leading-relaxed">{item.summary}</p>
-                              
-                              {/* Meta fields visualization */}
-                              <div className="flex flex-wrap gap-1.5 pt-2">
-                                {item.tags.map((tag) => (
-                                  <span key={tag} className="text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-semibold border border-primary/15">
-                                    {tag}
-                                  </span>
-                                ))}
-                                {item.people.map((p) => (
-                                  <span key={p} className="text-[9px] bg-secondary/80 text-foreground px-1.5 py-0.5 rounded font-semibold border border-border">
-                                    @{p}
-                                  </span>
-                                ))}
-                                {item.locations.map((l) => (
-                                  <span key={l} className="text-[9px] bg-indigo-500/10 text-indigo-500 px-1.5 py-0.5 rounded font-semibold border border-indigo-500/20">
-                                    📍 {l}
-                                  </span>
-                                ))}
-                                {item.emotions.map((e) => (
-                                  <span key={e} className="text-[9px] bg-rose-500/10 text-rose-500 px-1.5 py-0.5 rounded font-semibold border border-rose-500/20 uppercase tracking-wider">
-                                    {e}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                            <span className="text-[10px] bg-secondary/80 px-2 py-0.5 rounded font-semibold uppercase tracking-wider text-muted-foreground self-start shrink-0 border border-border">
-                              {item.type ? item.type.split('/')[1]?.toUpperCase() : 'FILE'}
-                            </span>
-                          </div>
-                        </motion.div>
-                      ))}
+            return (
+              <div key={groupTitle} className="bg-card border border-border/80 rounded-2xl overflow-hidden shadow-xs">
+                {/* Collapsible Group Header */}
+                <button
+                  onClick={() => toggleGroup(groupTitle)}
+                  className="w-full flex items-center justify-between p-4.5 bg-secondary/20 hover:bg-secondary/40 border-b border-border/50 transition-all text-left"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="text-primary">
+                      {getModeIcon()}
                     </div>
+                    <span className="font-bold text-sm text-foreground">{groupTitle}</span>
+                    <span className="text-[10px] bg-secondary/80 border border-border text-muted-foreground px-2 py-0.5 rounded-full font-bold">
+                      {items.length} {items.length === 1 ? 'item' : 'items'}
+                    </span>
                   </div>
-                ))}
-              </motion.div>
-            )}
+                  <div className="text-muted-foreground">
+                    {isExpanded ? (
+                      <ChevronDown className="w-4 h-4 transition-transform duration-200" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 transition-transform duration-200" />
+                    )}
+                  </div>
+                </button>
 
-            {/* Activity Feed View */}
-            {viewMode === 'feed' && (
-              <motion.div
-                key="feed"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="space-y-4"
-              >
-                {timelineData.activity_feed.map((item, index) => (
-                  <motion.div
-                    key={item.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.03, duration: 0.2 }}
-                    className="p-4 border border-border bg-card hover:bg-secondary/10 rounded-xl flex items-start gap-4 transition-all"
-                  >
-                    <div className="p-2 bg-secondary rounded-lg text-primary shrink-0">
-                      <Activity className="w-4 h-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-4">
-                        <p className="text-xs font-bold truncate text-foreground flex items-center gap-1.5">
-                          {getFileIcon(item.type)}
-                          {item.title}
-                        </p>
-                        <span className="text-[10px] text-muted-foreground shrink-0 font-medium">
-                          {new Date(item.created_at).toLocaleDateString()}
-                        </span>
+                {/* Collapsible Content Section */}
+                <AnimatePresence initial={false}>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: 'easeInOut' }}
+                      className="overflow-hidden"
+                    >
+                      <div className="p-5 pl-8 space-y-6 border-l-2 border-border/60 ml-6 my-4">
+                        {items.map((item) => {
+                          const milestone = isMilestone(item);
+                          return (
+                            <motion.div
+                              key={item.id}
+                              initial={{ opacity: 0, y: 5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className={`relative p-5 rounded-xl transition-all duration-300 border ${
+                                milestone 
+                                  ? 'bg-amber-500/5 border-amber-500/20 hover:border-amber-500/40 shadow-sm' 
+                                  : 'bg-card border-border/80 hover:border-primary/20 shadow-xs'
+                              }`}
+                            >
+                              {/* Left Timeline Connection dot */}
+                              <div className={`absolute -left-[39px] top-6 w-3 h-3 rounded-full border-4 border-card transition-all ${
+                                milestone ? 'bg-amber-500 scale-110 shadow-xs shadow-amber-500/50' : 'bg-border'
+                              }`} />
+
+                              {/* Card Body */}
+                              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                                <div className="space-y-2.5 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] text-muted-foreground font-semibold">
+                                      {item.created_at ? new Date(item.created_at).toLocaleDateString(undefined, {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      }) : ''}
+                                    </span>
+                                    {milestone && (
+                                      <span className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                        <Sparkles className="w-2.5 h-2.5" />
+                                        Milestone
+                                      </span>
+                                    )}
+                                  </div>
+                                  <h3 className="font-bold text-sm flex items-center gap-1.5 text-foreground">
+                                    {getFileIcon(item.type)}
+                                    {item.title}
+                                  </h3>
+                                  <p className="text-xs text-muted-foreground leading-relaxed">{item.summary}</p>
+                                  
+                                  {/* Badges details */}
+                                  <div className="flex flex-wrap gap-1.5 pt-2">
+                                    {item.tags?.map((tag) => (
+                                      <span key={tag} className="text-[9px] bg-primary/10 text-primary px-2 py-0.5 rounded font-bold border border-primary/10">
+                                        #{tag}
+                                      </span>
+                                    ))}
+                                    {item.people?.map((p) => (
+                                      <span key={p} className="text-[9px] bg-secondary text-foreground px-2 py-0.5 rounded font-bold border border-border">
+                                        @{p}
+                                      </span>
+                                    ))}
+                                    {item.locations?.map((l) => (
+                                      <span key={l} className="text-[9px] bg-indigo-500/10 text-indigo-500 px-2 py-0.5 rounded font-bold border border-indigo-500/15">
+                                        📍 {l}
+                                      </span>
+                                    ))}
+                                    {item.emotions?.map((e) => (
+                                      <span key={e} className="text-[9px] bg-rose-500/10 text-rose-500 px-2 py-0.5 rounded font-bold border border-rose-500/15 uppercase tracking-wider">
+                                        {e}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                                <span className="text-[9px] bg-secondary/60 px-2 py-0.5 rounded font-bold uppercase tracking-wider text-muted-foreground self-start shrink-0 border border-border/80">
+                                  {item.type ? item.type.split('/')[1]?.toUpperCase() : 'FILE'}
+                                </span>
+                              </div>
+                            </motion.div>
+                          );
+                        })}
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">{item.summary}</p>
-                    </div>
-                  </motion.div>
-                ))}
-              </motion.div>
-            )}
-
-            {/* Grouped Uploads View */}
-            {viewMode === 'grouped' && (
-              <motion.div
-                key="grouped"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="grid grid-cols-1 md:grid-cols-2 gap-6"
-              >
-                {Object.entries(groupedUploads).map(([category, data]) => (
-                  <motion.div
-                    key={category}
-                    layout
-                    className="bg-card border border-border rounded-xl p-5 space-y-4"
-                  >
-                    {/* Category Header */}
-                    <div className="flex items-center justify-between pb-3 border-b border-border">
-                      <div className="flex items-center gap-2.5">
-                        <div className="p-2 bg-secondary/80 rounded-lg">
-                          {data.icon}
-                        </div>
-                        <h3 className="font-bold text-sm text-foreground">{category}</h3>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-bold text-foreground">{data.count} items</p>
-                        <p className="text-[10px] text-muted-foreground font-medium">
-                          Total: {formatSize(data.totalSize)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Files in Category */}
-                    <div className="space-y-2.5 max-h-[250px] overflow-y-auto pr-1">
-                      {data.files.map((file) => (
-                        <div key={file.id} className="flex justify-between items-center text-xs p-2 bg-secondary/20 hover:bg-secondary/40 border border-border/40 rounded-lg transition-colors">
-                          <span className="font-semibold text-foreground truncate max-w-[200px]" title={file.title}>
-                            {file.title}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground shrink-0 font-medium">
-                            {new Date(file.created_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                ))}
-              </motion.div>
-            )}
-
-          </AnimatePresence>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

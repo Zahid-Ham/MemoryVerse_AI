@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import {
@@ -21,19 +21,55 @@ export default function Upload() {
   const [dragActive, setDragActive] = useState(false);
   const [uploadQueue, setUploadQueue] = useState([]);
   const fileInputRef = useRef(null);
+  const activeIntervals = useRef({});
+
+  useEffect(() => {
+    return () => {
+      Object.values(activeIntervals.current).forEach(clearInterval);
+    };
+  }, []);
 
   const [isImportingDemo, setIsImportingDemo] = useState(false);
   const [showSuccessAnim, setShowSuccessAnim] = useState(false);
+  const [hasDemoData, setHasDemoData] = useState(false);
+
+  const checkDemoData = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/files`);
+      const hasDemo = res.data.some(doc => doc.id && doc.id.startsWith('demo_doc_'));
+      setHasDemoData(hasDemo);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    checkDemoData();
+  }, []);
 
   const handleImportDemo = async () => {
     setIsImportingDemo(true);
     try {
-      await axios.post(`${API_URL}/api/files/import-demo`);
+      await axios.post(`${API_URL}/api/demo/load`);
       setShowSuccessAnim(true);
       window.dispatchEvent(new Event('refresh-data'));
+      await checkDemoData();
       setTimeout(() => setShowSuccessAnim(false), 3500);
     } catch (err) {
       console.error("Demo dataset import failed", err);
+    } finally {
+      setIsImportingDemo(false);
+    }
+  };
+
+  const handleClearDemo = async () => {
+    setIsImportingDemo(true);
+    try {
+      await axios.post(`${API_URL}/api/demo/clear`);
+      window.dispatchEvent(new Event('refresh-data'));
+      await checkDemoData();
+    } catch (err) {
+      console.error("Demo dataset clear failed", err);
     } finally {
       setIsImportingDemo(false);
     }
@@ -131,10 +167,9 @@ export default function Upload() {
       const result = response.data.results[0];
       if (result.status === 'success') {
         setUploadQueue((prev) =>
-          prev.map((i) => (i.id === item.id ? { ...i, status: 'success', progress: 100 } : i))
+          prev.map((i) => (i.id === item.id ? { ...i, status: 'processing', docId: result.id, progress: 100, processingStage: 'Queued' } : i))
         );
-        // Trigger page refresh across pages automatically
-        window.dispatchEvent(new Event('refresh-data'));
+        pollDocumentStatus(item.id, result.id);
       } else {
         setUploadQueue((prev) =>
           prev.map((i) => (i.id === item.id ? { ...i, status: 'error', error: result.error } : i))
@@ -148,17 +183,79 @@ export default function Upload() {
     }
   };
 
+  const pollDocumentStatus = (queueItemId, backendDocId) => {
+    if (activeIntervals.current[queueItemId]) {
+      clearInterval(activeIntervals.current[queueItemId]);
+    }
+
+    const intervalId = setInterval(async () => {
+      try {
+        const statusRes = await axios.get(`${API_URL}/api/documents/${backendDocId}/status`);
+        const { status, error_message } = statusRes.data;
+
+        if (status === 'Completed') {
+          clearInterval(intervalId);
+          delete activeIntervals.current[queueItemId];
+          setUploadQueue((prev) =>
+            prev.map((i) => (i.id === queueItemId ? { ...i, status: 'success', progress: 100 } : i))
+          );
+          window.dispatchEvent(new Event('refresh-data'));
+        } else if (status === 'Failed') {
+          clearInterval(intervalId);
+          delete activeIntervals.current[queueItemId];
+          setUploadQueue((prev) =>
+            prev.map((i) => (i.id === queueItemId ? { ...i, status: 'error', error: error_message || 'Processing failed' } : i))
+          );
+        } else {
+          setUploadQueue((prev) =>
+            prev.map((i) => (i.id === queueItemId ? { ...i, processingStage: status } : i))
+          );
+        }
+      } catch (err) {
+        console.error("Error polling document status", err);
+      }
+    }, 1500);
+
+    activeIntervals.current[queueItemId] = intervalId;
+  };
+
+  const retryProcessing = async (item) => {
+    setUploadQueue((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, status: 'processing', error: null, processingStage: 'Queued' } : i))
+    );
+
+    try {
+      await axios.post(`${API_URL}/api/documents/${item.docId}/retry`);
+      pollDocumentStatus(item.id, item.docId);
+    } catch (err) {
+      const errMsg = err.response?.data?.detail || err.message || 'Retry failed';
+      setUploadQueue((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, status: 'error', error: errMsg } : i))
+      );
+    }
+  };
+
   // Upload all pending items in the queue
   const uploadAll = () => {
     uploadQueue.forEach((item) => {
-      if (item.status === 'pending' || item.status === 'error') {
+      if (item.status === 'pending') {
         uploadFile(item);
+      } else if (item.status === 'error') {
+        if (item.docId) {
+          retryProcessing(item);
+        } else {
+          uploadFile(item);
+        }
       }
     });
   };
 
   // Clear specific item from queue
   const clearItem = (id) => {
+    if (activeIntervals.current[id]) {
+      clearInterval(activeIntervals.current[id]);
+      delete activeIntervals.current[id];
+    }
     setUploadQueue((prev) => prev.filter((i) => i.id !== id));
   };
 
@@ -172,18 +269,33 @@ export default function Upload() {
             Ingest new documents, notes, or media. Your AI assistant will organize and connect them to your space.
           </p>
         </div>
-        <button
-          onClick={handleImportDemo}
-          disabled={isImportingDemo}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all self-start sm:self-auto disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isImportingDemo ? (
-            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <Database className="w-3.5 h-3.5" />
-          )}
-          Import Demo Dataset
-        </button>
+        {hasDemoData ? (
+          <button
+            onClick={handleClearDemo}
+            disabled={isImportingDemo}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/20 text-xs font-bold rounded-xl shadow-xs transition-all self-start sm:self-auto disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isImportingDemo ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="w-3.5 h-3.5" />
+            )}
+            Clear Demo Data
+          </button>
+        ) : (
+          <button
+            onClick={handleImportDemo}
+            disabled={isImportingDemo}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all self-start sm:self-auto disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isImportingDemo ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Database className="w-3.5 h-3.5" />
+            )}
+            Import Demo Dataset
+          </button>
+        )}
       </div>
 
       {/* Drag & Drop Zone */}
@@ -296,23 +408,29 @@ export default function Upload() {
                         </button>
                       )}
 
-                      {item.status === 'uploading' && (
-                        <span className="text-[10px] text-primary font-semibold flex items-center gap-1">
-                          <RefreshCw className="w-3 h-3 animate-spin" />
-                          {item.progress}%
+                      {item.status === 'processing' && (
+                        <span className="text-[10px] text-primary font-semibold flex items-center gap-1.5">
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          {item.processingStage || 'Processing'}
                         </span>
                       )}
 
                       {item.status === 'success' && (
                         <span className="text-emerald-500 flex items-center gap-1 text-[10px] font-semibold">
                           <CheckCircle className="w-3.5 h-3.5" />
-                          Ready
+                          ✓ Ready for Search
                         </span>
                       )}
 
                       {item.status === 'error' && (
                         <button
-                          onClick={() => uploadFile(item)}
+                          onClick={() => {
+                            if (item.docId) {
+                              retryProcessing(item);
+                            } else {
+                              uploadFile(item);
+                            }
+                          }}
                           className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-secondary"
                           title="Retry"
                         >
