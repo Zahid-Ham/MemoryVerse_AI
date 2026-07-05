@@ -1,3 +1,13 @@
+---
+title: MemoryVerse Backend
+emoji: 🧠
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # MemoryVerse AI - Your Personal Digital Second Brain
 
 <div align="center">
