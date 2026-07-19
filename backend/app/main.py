@@ -20,14 +20,14 @@ from app.models.user import UserModel
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
-# Apply ad-hoc migrations to add user_id column to existing tables
-with engine.begin() as conn:
-    for table in ["document", "document_content", "document_chunk", "document_metadata", "document_embedding_status", "graph_nodes", "graph_edges", "rag_cache"]:
-        try:
+# Apply ad-hoc migrations to add user_id column to existing tables (each in its own transaction)
+for table in ["document", "document_content", "document_chunk", "document_metadata", "document_embedding_status", "graph_nodes", "graph_edges", "rag_cache"]:
+    try:
+        with engine.begin() as conn:
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN user_id VARCHAR"))
-        except Exception:
-            # Silently pass if column already exists
-            pass
+    except Exception:
+        # Silently pass if column already exists or fails
+        pass
 
 load_dotenv()
 
