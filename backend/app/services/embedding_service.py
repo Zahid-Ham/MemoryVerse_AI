@@ -104,7 +104,7 @@ class ChromaVectorStoreProvider(VectorStoreProvider):
 
 class EmbeddingService:
     @staticmethod
-    def generate_and_index_document(db: Session, document_id: str) -> Dict[str, Any]:
+    def generate_and_index_document(db: Session, document_id: str, user_id: str = None) -> Dict[str, Any]:
         """
         Loads document chunks, generates embeddings using sentence-transformers,
         and indexes them in ChromaDB. Updates SQLite Embedding Status.
@@ -128,6 +128,7 @@ class EmbeddingService:
         if not existing_status:
             existing_status = DocumentEmbeddingStatus(
                 id=str(uuid.uuid4()),
+                user_id=user_id,
                 document_id=document_id,
                 status="processing",
                 model_name=model_name,
@@ -136,6 +137,8 @@ class EmbeddingService:
             db.add(existing_status)
         else:
             existing_status.status = "processing"
+            if user_id:
+                existing_status.user_id = user_id
             existing_status.embedded_at = datetime.utcnow()
         db.commit()
 
@@ -174,7 +177,8 @@ class EmbeddingService:
                 db=db,
                 document_id=document_id,
                 chunks=chunks,
-                embeddings=embeddings
+                embeddings=embeddings,
+                user_id=user_id
             )
 
             # 6. Update SQLite status to completed

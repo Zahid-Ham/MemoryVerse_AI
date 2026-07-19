@@ -19,6 +19,15 @@ from app.models.user import UserModel
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
+# Apply ad-hoc migrations to add user_id column to existing tables
+with engine.begin() as conn:
+    for table in ["document", "document_content", "document_chunk", "document_metadata", "document_embedding_status", "graph_nodes", "graph_edges", "rag_cache"]:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id VARCHAR")
+        except Exception:
+            # Silently pass if column already exists
+            pass
+
 load_dotenv()
 
 app = FastAPI(

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, JSON, Text, Float
+from sqlalchemy import Column, String, Integer, DateTime, JSON, Text, Float, ForeignKey
 from datetime import datetime
 from app.database.connection import Base
 
@@ -6,6 +6,7 @@ class DocumentModel(Base):
     __tablename__ = "documents"
 
     id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     filename = Column(String, index=True)
     file_path = Column(String)
     content_type = Column(String)
@@ -28,6 +29,7 @@ class Document(Base):
     __tablename__ = "document"
 
     id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     filename = Column(String, index=True)
     filepath = Column(String)
     filetype = Column(String)
@@ -42,6 +44,7 @@ class DocumentContent(Base):
     __tablename__ = "document_content"
 
     id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     document_id = Column(String, index=True)
     raw_text = Column(Text)
     text_length = Column(Integer)
@@ -52,6 +55,7 @@ class DocumentChunk(Base):
     __tablename__ = "document_chunk"
 
     id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     document_id = Column(String, index=True)
     chunk_index = Column(Integer)
     chunk_text = Column(Text)
@@ -63,6 +67,7 @@ class DocumentMetadata(Base):
     __tablename__ = "document_metadata"
 
     id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     document_id = Column(String, index=True)
     title = Column(String)
     summary = Column(Text)
@@ -79,6 +84,7 @@ class DocumentEmbeddingStatus(Base):
     __tablename__ = "document_embedding_status"
 
     id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     document_id = Column(String, index=True)
     status = Column(String, default="pending")  # pending, completed, failed
     model_name = Column(String)
@@ -90,6 +96,7 @@ class RAGCache(Base):
     __tablename__ = "rag_cache"
 
     id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     query = Column(String, index=True)
     answer = Column(Text)
     sources = Column(Text)              # JSON string

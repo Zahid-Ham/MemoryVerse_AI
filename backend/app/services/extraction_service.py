@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class ExtractionService:
     @staticmethod
-    def run_extraction_task(file_path: str, content_type: str, document_id: str):
+    def run_extraction_task(file_path: str, content_type: str, document_id: str, user_id: str = None):
         """
         Background task to extract text from an uploaded file and persist it.
         """
@@ -33,6 +33,7 @@ class ExtractionService:
             # Persist to database
             content_record = DocumentContent(
                 id=str(uuid.uuid4()),
+                user_id=user_id,
                 document_id=document_id,
                 raw_text=raw_text,
                 text_length=text_length,
@@ -44,10 +45,10 @@ class ExtractionService:
 
             # Trigger text segment chunking and persistence
             if raw_text:
-                ChunkService.chunk_and_persist(db, document_id, raw_text)
+                ChunkService.chunk_and_persist(db, document_id, raw_text, user_id=user_id)
                 try:
                     from app.services.embedding_service import EmbeddingService
-                    EmbeddingService.generate_and_index_document(db, document_id)
+                    EmbeddingService.generate_and_index_document(db, document_id, user_id=user_id)
                 except Exception as embedding_error:
                     logger.error(f"Embedding generation failed for document {document_id}: {str(embedding_error)}", exc_info=True)
                     raise embedding_error
@@ -61,14 +62,15 @@ class ExtractionService:
                     doc.status = "Generating Metadata"
                     db.commit()
 
-                meta_res = GroqMetadataService.extract_and_persist(db, document_id, raw_text, filename)
+                meta_res = GroqMetadataService.extract_and_persist(db, document_id, raw_text, filename, user_id=user_id)
                 
                 # Trigger Relationship Engine V1 processing
                 RelationshipService.process_document_relationships(
                     db=db,
                     document_id=document_id,
                     title=meta_res.get("title", filename),
-                    metadata=meta_res
+                    metadata=meta_res,
+                    user_id=user_id
                 )
             except Exception as metadata_error:
                 # Store metadata errors in logs (failures should not break upload/ingestion)

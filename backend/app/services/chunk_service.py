@@ -51,7 +51,7 @@ class ChunkService:
         return chunks
 
     @staticmethod
-    def chunk_and_persist(db: Session, document_id: str, text: str) -> dict:
+    def chunk_and_persist(db: Session, document_id: str, text: str, user_id: str = None) -> dict:
         """
         Splits raw text and saves all chunks to the SQLite database.
         """
@@ -60,6 +60,7 @@ class ChunkService:
         for idx, chunk_text in enumerate(chunks):
             db_chunk = DocumentChunk(
                 id=str(uuid.uuid4()),
+                user_id=user_id,
                 document_id=document_id,
                 chunk_index=idx,
                 chunk_text=chunk_text,

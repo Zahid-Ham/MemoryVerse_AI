@@ -5,6 +5,8 @@ from datetime import datetime
 from collections import defaultdict
 from app.database.connection import get_db
 from app.models.document import Document, DocumentMetadata
+from app.api.auth import get_current_user
+from app.models.user import UserModel
 
 router = APIRouter(prefix="/api/timeline", tags=["timeline"])
 
@@ -15,7 +17,8 @@ def get_timeline(
     location: Optional[str] = Query(None),
     emotion: Optional[str] = Query(None),
     group_by: str = Query("date", enum=["date", "month", "year", "title", "people", "locations", "emotions"]),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
 ):
     """
     Fetches documents/memories from the database, applies filters,
@@ -24,7 +27,7 @@ def get_timeline(
     # Query Document joined with DocumentMetadata
     results = db.query(Document, DocumentMetadata).outerjoin(
         DocumentMetadata, Document.id == DocumentMetadata.document_id
-    ).all()
+    ).filter(Document.user_id == current_user.id).all()
 
     activity_feed = []
     
@@ -99,7 +102,7 @@ def get_timeline(
             grouped[key].append(item)
 
     # 3. Gather all unique filters dynamically from database
-    all_metadata = db.query(DocumentMetadata).all()
+    all_metadata = db.query(DocumentMetadata).filter(DocumentMetadata.user_id == current_user.id).all()
     available_tags = set()
     available_people = set()
     available_locations = set()

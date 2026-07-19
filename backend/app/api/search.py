@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from app.database.connection import get_db
 from app.models.document import Document, DocumentMetadata
+from app.api.auth import get_current_user
+from app.models.user import UserModel
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -16,13 +18,13 @@ def get_vector_index_stats():
     return VectorStoreService.get_stats()
 
 @router.get("/suggestions")
-def get_search_suggestions(db: Session = Depends(get_db)):
+def get_search_suggestions(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """
     GET /api/search/suggestions
     Compiles contextual search questions based on SQLite metadata elements.
     """
     from collections import Counter
-    all_meta = db.query(DocumentMetadata).all()
+    all_meta = db.query(DocumentMetadata).filter(DocumentMetadata.user_id == current_user.id).all()
     
     tags = []
     people = []
@@ -62,14 +64,14 @@ def get_search_suggestions(db: Session = Depends(get_db)):
     return {"suggestions": suggestions}
 
 @router.get("")
-def search_metadata(q: str = Query("", description="Search query"), db: Session = Depends(get_db)):
+def search_metadata(q: str = Query("", description="Search query"), db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     if not q.strip():
         return []
 
     query_words = q.lower().split()
     results = db.query(Document, DocumentMetadata).outerjoin(
         DocumentMetadata, Document.id == DocumentMetadata.document_id
-    ).all()
+    ).filter(Document.user_id == current_user.id).all()
 
     ranked_matches = []
 
@@ -145,7 +147,7 @@ class SemanticSearchRequest(BaseModel):
     query: str
 
 @router.post("/semantic")
-def semantic_search(request: SemanticSearchRequest):
+def semantic_search(request: SemanticSearchRequest, current_user: UserModel = Depends(get_current_user)):
     """
     POST /api/search/semantic
     Performs semantic vector similarity search against ChromaDB index chunks.
@@ -162,7 +164,7 @@ def semantic_search(request: SemanticSearchRequest):
 
     # 2. Chroma Similarity Search (Top K = 5)
     from app.services.vector_store_service import VectorStoreService
-    search_results = VectorStoreService.query_similar_chunks(query_embedding, n_results=5)
+    search_results = VectorStoreService.query_similar_chunks(query_embedding, n_results=5, user_id=current_user.id)
 
     # 3. Format ranked matches
     formatted_results = []

@@ -32,7 +32,7 @@ class VectorStoreService:
         return cls.get_collection()
 
     @classmethod
-    def insert_chunks(cls, db: Session, document_id: str, chunks: List[Any], embeddings: List[List[float]]):
+    def insert_chunks(cls, db: Session, document_id: str, chunks: List[Any], embeddings: List[List[float]], user_id: str = None):
         """
         Inserts document chunks and embeddings with full metadata.
         Prevents duplicates by deleting existing document chunks from ChromaDB first.
@@ -74,6 +74,7 @@ class VectorStoreService:
             
             metadatas_list.append({
                 "document_id": document_id,
+                "user_id": user_id or "unknown",
                 "chunk_id": chunk_id,
                 "chunk_index": chunk.chunk_index,
                 "filename": filename,
@@ -118,14 +119,24 @@ class VectorStoreService:
             logger.error(f"Error resetting ChromaDB collection: {str(e)}", exc_info=True)
 
     @classmethod
-    def update_document(cls, db: Session, document_id: str, chunks: List[Any], embeddings: List[List[float]]):
+    def update_document(cls, db: Session, document_id: str, chunks: List[Any], embeddings: List[List[float]], user_id: str = None):
         """Updates a document's vector store index by replacing existing vectors."""
-        cls.insert_chunks(db, document_id, chunks, embeddings)
+        cls.insert_chunks(db, document_id, chunks, embeddings, user_id=user_id)
 
     @classmethod
-    def query_similar_chunks(cls, query_embedding: List[float], n_results: int = 5, filter_dict: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def query_similar_chunks(cls, query_embedding: List[float], n_results: int = 5, filter_dict: Optional[Dict[str, Any]] = None, user_id: str = None) -> Dict[str, Any]:
         """Queries the vector store for similar chunks using a query embedding."""
         collection = cls.get_collection()
+        
+        # Enforce user isolation in Chroma query
+        if user_id:
+            user_filter = {"user_id": user_id}
+            if filter_dict:
+                # Combine using Chroma's $and operator
+                filter_dict = {"$and": [user_filter, filter_dict]}
+            else:
+                filter_dict = user_filter
+                
         try:
             results = collection.query(
                 query_embeddings=[query_embedding],

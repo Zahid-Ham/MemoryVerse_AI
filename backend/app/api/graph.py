@@ -7,6 +7,8 @@ from app.models.graph import GraphNodeModel, GraphEdgeModel
 from app.models.document import Document, DocumentMetadata
 from app.utils.key_manager import GroqKeyManager
 import json
+from app.api.auth import get_current_user
+from app.models.user import UserModel
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
 
@@ -23,11 +25,14 @@ CATEGORY_TYPES = {
 # Level 0 — Root: just the 6 category buckets with counts
 # ─────────────────────────────────────────────────────────────────────────────
 @router.get("/root")
-def get_root(db: Session = Depends(get_db)):
+def get_root(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Returns the root node and 6 category nodes with entity counts."""
     categories = []
     for label, db_type in CATEGORY_TYPES.items():
-        count = db.query(GraphNodeModel).filter(GraphNodeModel.type == db_type).count()
+        count = db.query(GraphNodeModel).filter(
+            GraphNodeModel.type == db_type,
+            GraphNodeModel.user_id == current_user.id
+        ).count()
         categories.append({
             "id": f"cat_{label.lower()}",
             "label": label,
@@ -45,7 +50,7 @@ def get_root(db: Session = Depends(get_db)):
 # Level 1 — Expand a category → its entity nodes
 # ─────────────────────────────────────────────────────────────────────────────
 @router.get("/expand/{category_id}")
-def expand_category(category_id: str, db: Session = Depends(get_db)):
+def expand_category(category_id: str, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """
     Given a category_id like 'cat_people', returns all entity nodes of that type.
     """
@@ -64,13 +69,17 @@ def expand_category(category_id: str, db: Session = Depends(get_db)):
     if not entity_type:
         raise HTTPException(status_code=404, detail=f"Unknown category: {category_id}")
 
-    nodes = db.query(GraphNodeModel).filter(GraphNodeModel.type == entity_type).all()
+    nodes = db.query(GraphNodeModel).filter(
+        GraphNodeModel.type == entity_type,
+        GraphNodeModel.user_id == current_user.id
+    ).all()
 
     # For each node, count its edge connections
     result = []
     for n in nodes:
         edge_count = db.query(GraphEdgeModel).filter(
-            (GraphEdgeModel.source_id == n.id) | (GraphEdgeModel.target_id == n.id)
+            GraphEdgeModel.user_id == current_user.id,
+            ((GraphEdgeModel.source_id == n.id) | (GraphEdgeModel.target_id == n.id))
         ).count()
         result.append({
             "id": n.id,
@@ -86,18 +95,27 @@ def expand_category(category_id: str, db: Session = Depends(get_db)):
 # Level 2 — Expand an entity node → related docs + connected entities
 # ─────────────────────────────────────────────────────────────────────────────
 @router.get("/node/{node_id}")
-def get_node_children(node_id: str, db: Session = Depends(get_db)):
+def get_node_children(node_id: str, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """
     Returns all edges connected to a node, and the nodes at both ends.
     This powers Level 2 expansion and the Side Panel.
     """
-    node = db.query(GraphNodeModel).filter(GraphNodeModel.id == node_id).first()
+    node = db.query(GraphNodeModel).filter(
+        GraphNodeModel.id == node_id,
+        GraphNodeModel.user_id == current_user.id
+    ).first()
     if not node:
-        raise HTTPException(status_code=404, detail=f"Node not found: {node_id}")
+        raise HTTPException(status_code=404, detail="Node not found")
 
     # Edges where this node is source OR target
-    out_edges = db.query(GraphEdgeModel).filter(GraphEdgeModel.source_id == node_id).all()
-    in_edges  = db.query(GraphEdgeModel).filter(GraphEdgeModel.target_id == node_id).all()
+    out_edges = db.query(GraphEdgeModel).filter(
+        GraphEdgeModel.source_id == node_id,
+        GraphEdgeModel.user_id == current_user.id
+    ).all()
+    in_edges  = db.query(GraphEdgeModel).filter(
+        GraphEdgeModel.target_id == node_id,
+        GraphEdgeModel.user_id == current_user.id
+    ).all()
 
     connected_ids = set()
     edges_out = []
@@ -111,12 +129,16 @@ def get_node_children(node_id: str, db: Session = Depends(get_db)):
                           "type": e.type, "weight": e.weight})
 
     # Fetch the connected nodes
-    connected_nodes = db.query(GraphNodeModel).filter(GraphNodeModel.id.in_(connected_ids)).all()
+    connected_nodes = db.query(GraphNodeModel).filter(
+        GraphNodeModel.id.in_(connected_ids),
+        GraphNodeModel.user_id == current_user.id
+    ).all()
 
     nodes_out = [{
         "id": n.id, "label": n.name, "type": n.type,
         "edge_count": db.query(GraphEdgeModel).filter(
-            (GraphEdgeModel.source_id == n.id) | (GraphEdgeModel.target_id == n.id)
+            GraphEdgeModel.user_id == current_user.id,
+            ((GraphEdgeModel.source_id == n.id) | (GraphEdgeModel.target_id == n.id))
         ).count()
     } for n in connected_nodes]
 
@@ -132,7 +154,10 @@ def get_node_children(node_id: str, db: Session = Depends(get_db)):
     if doc_ids:
         # strip "document_" prefix to get real doc id
         real_ids = [did.replace("document_", "") for did in doc_ids]
-        metas = db.query(DocumentMetadata).filter(DocumentMetadata.document_id.in_(real_ids)).all()
+        metas = db.query(DocumentMetadata).filter(
+            DocumentMetadata.document_id.in_(real_ids),
+            DocumentMetadata.user_id == current_user.id
+        ).all()
         for m in metas:
             doc_meta_map[f"document_{m.document_id}"] = {
                 "title": m.title, "summary": m.summary
@@ -153,18 +178,30 @@ def get_node_children(node_id: str, db: Session = Depends(get_db)):
 # Side Panel — Full node detail for the right drawer
 # ─────────────────────────────────────────────────────────────────────────────
 @router.get("/detail/{node_id}")
-def get_node_detail(node_id: str, db: Session = Depends(get_db)):
+def get_node_detail(node_id: str, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Returns rich detail for a node: counts, related docs, connected entities."""
-    node = db.query(GraphNodeModel).filter(GraphNodeModel.id == node_id).first()
+    node = db.query(GraphNodeModel).filter(
+        GraphNodeModel.id == node_id,
+        GraphNodeModel.user_id == current_user.id
+    ).first()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
 
-    out_edges = db.query(GraphEdgeModel).filter(GraphEdgeModel.source_id == node_id).all()
-    in_edges  = db.query(GraphEdgeModel).filter(GraphEdgeModel.target_id == node_id).all()
+    out_edges = db.query(GraphEdgeModel).filter(
+        GraphEdgeModel.source_id == node_id,
+        GraphEdgeModel.user_id == current_user.id
+    ).all()
+    in_edges  = db.query(GraphEdgeModel).filter(
+        GraphEdgeModel.target_id == node_id,
+        GraphEdgeModel.user_id == current_user.id
+    ).all()
     all_edges = out_edges + in_edges
 
     connected_ids = list({e.target_id for e in out_edges} | {e.source_id for e in in_edges} - {node_id})
-    connected_nodes = db.query(GraphNodeModel).filter(GraphNodeModel.id.in_(connected_ids)).all()
+    connected_nodes = db.query(GraphNodeModel).filter(
+        GraphNodeModel.id.in_(connected_ids),
+        GraphNodeModel.user_id == current_user.id
+    ).all()
 
     doc_nodes    = [n for n in connected_nodes if n.type == "Document"]
     entity_nodes = [n for n in connected_nodes if n.type != "Document"]
@@ -173,7 +210,10 @@ def get_node_detail(node_id: str, db: Session = Depends(get_db)):
     doc_details = []
     for dn in doc_nodes:
         real_id = dn.id.replace("document_", "")
-        meta = db.query(DocumentMetadata).filter(DocumentMetadata.document_id == real_id).first()
+        meta = db.query(DocumentMetadata).filter(
+            DocumentMetadata.document_id == real_id,
+            DocumentMetadata.user_id == current_user.id
+        ).first()
         doc_details.append({
             "id": dn.id,
             "filename": dn.name,
@@ -197,16 +237,28 @@ def get_node_detail(node_id: str, db: Session = Depends(get_db)):
 # AI Summary — Groq generates a natural language insight for a node
 # ─────────────────────────────────────────────────────────────────────────────
 @router.get("/summary/{node_id}")
-def get_node_summary(node_id: str, db: Session = Depends(get_db)):
+def get_node_summary(node_id: str, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Uses Groq to generate a natural language relationship summary for a node."""
-    node = db.query(GraphNodeModel).filter(GraphNodeModel.id == node_id).first()
+    node = db.query(GraphNodeModel).filter(
+        GraphNodeModel.id == node_id,
+        GraphNodeModel.user_id == current_user.id
+    ).first()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
 
-    out_edges = db.query(GraphEdgeModel).filter(GraphEdgeModel.source_id == node_id).all()
-    in_edges  = db.query(GraphEdgeModel).filter(GraphEdgeModel.target_id == node_id).all()
+    out_edges = db.query(GraphEdgeModel).filter(
+        GraphEdgeModel.source_id == node_id,
+        GraphEdgeModel.user_id == current_user.id
+    ).all()
+    in_edges  = db.query(GraphEdgeModel).filter(
+        GraphEdgeModel.target_id == node_id,
+        GraphEdgeModel.user_id == current_user.id
+    ).all()
     all_connected_ids = list({e.target_id for e in out_edges} | {e.source_id for e in in_edges} - {node_id})
-    connected_nodes = db.query(GraphNodeModel).filter(GraphNodeModel.id.in_(all_connected_ids)).all()
+    connected_nodes = db.query(GraphNodeModel).filter(
+        GraphNodeModel.id.in_(all_connected_ids),
+        GraphNodeModel.user_id == current_user.id
+    ).all()
 
     doc_count    = sum(1 for n in connected_nodes if n.type == "Document")
     entity_names = [n.name for n in connected_nodes if n.type != "Document"]
@@ -243,10 +295,11 @@ def get_node_summary(node_id: str, db: Session = Depends(get_db)):
 # Search — find nodes by name substring
 # ─────────────────────────────────────────────────────────────────────────────
 @router.get("/search")
-def search_nodes(q: str = Query(..., min_length=1), db: Session = Depends(get_db)):
+def search_nodes(q: str = Query(..., min_length=1), db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Fuzzy name search across all graph nodes."""
     nodes = db.query(GraphNodeModel).filter(
-        GraphNodeModel.name.ilike(f"%{q}%")
+        GraphNodeModel.name.ilike(f"%{q}%"),
+        GraphNodeModel.user_id == current_user.id
     ).limit(20).all()
 
     return [{"id": n.id, "label": n.name, "type": n.type} for n in nodes]
@@ -256,11 +309,11 @@ def search_nodes(q: str = Query(..., min_length=1), db: Session = Depends(get_db
 # Legacy compatibility endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 @router.get("")
-def get_graph_root(db: Session = Depends(get_db)):
-    return get_graph_legacy(db)
+def get_graph_root(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    return get_graph_legacy(db, current_user=current_user)
 
 @router.get("/visualization")
-def get_graph_legacy(db: Session = Depends(get_db)):
+def get_graph_legacy(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Legacy endpoint kept for backward compatibility."""
     from app.services.relationship import RelationshipService
-    return RelationshipService.get_visualization_data(db)
+    return RelationshipService.get_visualization_data(db, user_id=current_user.id)

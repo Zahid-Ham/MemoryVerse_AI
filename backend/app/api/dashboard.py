@@ -4,20 +4,25 @@ from sqlalchemy import func
 from collections import Counter
 from app.database.connection import get_db
 from app.models.document import Document, DocumentMetadata
+from app.api.auth import get_current_user
+from app.models.user import UserModel
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 @router.get("/stats")
-def get_dashboard_stats(db: Session = Depends(get_db)):
+def get_dashboard_stats(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
     # 1. Total files count
-    total_files = db.query(Document).count()
+    total_files = db.query(Document).filter(Document.user_id == current_user.id).count()
     
     # 2. Storage used in bytes
-    storage_used_res = db.query(func.sum(Document.filesize)).scalar()
+    storage_used_res = db.query(func.sum(Document.filesize)).filter(Document.user_id == current_user.id).scalar()
     storage_used = storage_used_res if storage_used_res is not None else 0
     
     # 3. Document Type Distribution
-    all_files = db.query(Document.filetype).all()
+    all_files = db.query(Document.filetype).filter(Document.user_id == current_user.id).all()
     type_counts = Counter()
     for (ftype,) in all_files:
         if not ftype:
@@ -37,7 +42,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     doc_type_distribution = [{"name": name, "value": val} for name, val in type_counts.items()]
     
     # 4. Recent uploads (limit to 5)
-    recent_docs = db.query(Document).order_by(Document.uploaded_at.desc()).limit(5).all()
+    recent_docs = db.query(Document).filter(Document.user_id == current_user.id).order_by(Document.uploaded_at.desc()).limit(5).all()
     recent_uploads = []
     for doc in recent_docs:
         recent_uploads.append({
@@ -51,13 +56,13 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         })
 
     # Check if any documents are currently processing
-    processing_count = db.query(Document).filter(
+    processing_count = db.query(Document).filter(Document.user_id == current_user.id).filter(
         Document.status.in_(["Queued", "Extracting Text", "Generating Metadata", "Creating Embeddings", "Indexing"])
     ).count()
     is_processing = processing_count > 0
 
     # 5. Extract metadata aggregates (Tags, People, Locations)
-    all_metadata = db.query(DocumentMetadata).all()
+    all_metadata = db.query(DocumentMetadata).filter(DocumentMetadata.user_id == current_user.id).all()
     
     tags_counter = Counter()
     people_counter = Counter()
@@ -93,7 +98,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     largest_cat_name = "General"
     largest_cat_cnt = 0
     largest_cat_pct = 0
-    category_counts = db.query(Document.category, func.count(Document.id)).group_by(Document.category).all()
+    category_counts = db.query(Document.category, func.count(Document.id)).filter(Document.user_id == current_user.id).group_by(Document.category).all()
     if category_counts:
         cat_counts = {cat or "General": cnt for cat, cnt in category_counts}
         largest_cat_name = max(cat_counts, key=cat_counts.get)
@@ -103,7 +108,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     # Newest Knowledge Area
     newest_area_name = "General"
     newest_area_desc = "Ready for new memory additions."
-    newest_doc = db.query(Document).order_by(Document.uploaded_at.desc()).first()
+    newest_doc = db.query(Document).filter(Document.user_id == current_user.id).order_by(Document.uploaded_at.desc()).first()
     if newest_doc:
         newest_area_name = newest_doc.category or "General"
         newest_area_desc = f"Expanded from upload: '{newest_doc.filename}'."
@@ -143,7 +148,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     if total_files > 0:
         recent_doc_summaries = []
         for doc in recent_docs:
-            meta = db.query(DocumentMetadata).filter(DocumentMetadata.document_id == doc.id).first()
+            meta = db.query(DocumentMetadata).filter(DocumentMetadata.document_id == doc.id, DocumentMetadata.user_id == current_user.id).first()
             if meta and meta.summary:
                 recent_doc_summaries.append(f"- {doc.filename} ({doc.category or 'General'}): {meta.summary}")
             else:

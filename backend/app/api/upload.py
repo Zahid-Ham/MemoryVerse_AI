@@ -10,6 +10,8 @@ from app.models.document import Document, DocumentContent, DocumentMetadata
 from pypdf import PdfReader
 from app.services.extraction_service import ExtractionService
 from app.services.vector_store_service import VectorStoreService
+from app.api.auth import get_current_user
+from app.models.user import UserModel
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -31,7 +33,8 @@ SUPPORTED_TYPES = [
 async def upload_files(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
 ):
     uploaded_results = []
     
@@ -61,6 +64,7 @@ async def upload_files(
             # Persist metadata into SQLite
             new_doc = Document(
                 id=file_id,
+                user_id=current_user.id,
                 filename=file.filename,
                 filepath=file_path,
                 filetype=file.content_type,
@@ -76,7 +80,8 @@ async def upload_files(
                 ExtractionService.run_extraction_task,
                 file_path,
                 file.content_type,
-                file_id
+                file_id,
+                current_user.id
             )
             
             uploaded_results.append({
@@ -101,12 +106,12 @@ async def upload_files(
     return {"message": "Upload process completed", "results": uploaded_results}
 
 @router.get("")
-def list_files(db: Session = Depends(get_db)):
+def list_files(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Returns a list of all uploaded documents with metadata included."""
-    docs = db.query(Document).order_by(Document.uploaded_at.desc()).all()
+    docs = db.query(Document).filter(Document.user_id == current_user.id).order_by(Document.uploaded_at.desc()).all()
     results = []
     for doc in docs:
-        meta = db.query(DocumentMetadata).filter(DocumentMetadata.document_id == doc.id).first()
+        meta = db.query(DocumentMetadata).filter(DocumentMetadata.document_id == doc.id, DocumentMetadata.user_id == current_user.id).first()
         results.append({
             "id": doc.id,
             "filename": doc.filename,
@@ -127,14 +132,14 @@ def list_files(db: Session = Depends(get_db)):
     return results
 
 @router.get("/{id}")
-def get_file(id: str, db: Session = Depends(get_db)):
+def get_file(id: str, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Returns a specific document's details along with its extracted text and metadata."""
-    doc = db.query(Document).filter(Document.id == id).first()
+    doc = db.query(Document).filter(Document.id == id, Document.user_id == current_user.id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="File not found")
         
-    content = db.query(DocumentContent).filter(DocumentContent.document_id == id).first()
-    meta = db.query(DocumentMetadata).filter(DocumentMetadata.document_id == id).first()
+    content = db.query(DocumentContent).filter(DocumentContent.document_id == id, DocumentContent.user_id == current_user.id).first()
+    meta = db.query(DocumentMetadata).filter(DocumentMetadata.document_id == id, DocumentMetadata.user_id == current_user.id).first()
     
     metadata_payload = None
     if meta:
@@ -164,9 +169,9 @@ def get_file(id: str, db: Session = Depends(get_db)):
     }
 
 @router.delete("/{id}")
-def delete_file(id: str, db: Session = Depends(get_db)):
+def delete_file(id: str, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Deletes a file from disk/Cloudinary and database."""
-    doc = db.query(Document).filter(Document.id == id).first()
+    doc = db.query(Document).filter(Document.id == id, Document.user_id == current_user.id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="File not found")
         
@@ -192,9 +197,9 @@ def delete_file(id: str, db: Session = Depends(get_db)):
     return {"message": "File deleted successfully"}
 
 @router.get("/{id}/raw")
-def get_raw_file(id: str, db: Session = Depends(get_db)):
+def get_raw_file(id: str, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Returns the raw file content."""
-    doc = db.query(Document).filter(Document.id == id).first()
+    doc = db.query(Document).filter(Document.id == id, Document.user_id == current_user.id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="File not found")
         
@@ -209,12 +214,12 @@ def get_raw_file(id: str, db: Session = Depends(get_db)):
     return FileResponse(doc.filepath, media_type=doc.filetype, filename=doc.filename, content_disposition_type="inline")
 
 @router.get("/{id}/preview")
-def get_file_preview(id: str, db: Session = Depends(get_db)):
+def get_file_preview(id: str, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Returns structured preview data for the file based on its type."""
     import io
     import urllib.request
     
-    doc = db.query(Document).filter(Document.id == id).first()
+    doc = db.query(Document).filter(Document.id == id, Document.user_id == current_user.id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -276,9 +281,9 @@ def get_file_preview(id: str, db: Session = Depends(get_db)):
         return {"type": "generic", "message": "Preview not supported for this file type"}
 
 @router.delete("")
-def delete_all_files(db: Session = Depends(get_db)):
+def delete_all_files(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Deletes all uploaded files from storage/Cloudinary and database."""
-    docs = db.query(Document).all()
+    docs = db.query(Document).filter(Document.user_id == current_user.id).all()
     for doc in docs:
         if doc.filepath and doc.filepath.startswith("http"):
             try:
@@ -300,14 +305,18 @@ def delete_all_files(db: Session = Depends(get_db)):
 @router.post("/import-demo")
 async def import_demo_dataset(
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
 ):
     # Check if demo files already exist in DB to prevent duplicates
-    existing = db.query(Document).filter(Document.filename.in_([
-        "Csyrus_ML_Research_Project.txt",
-        "Csyrus_Internship_Offer_Letter.txt",
-        "AWS_Cloud_Architect_Certification.txt"
-    ])).first()
+    existing = db.query(Document).filter(
+        Document.user_id == current_user.id,
+        Document.filename.in_([
+            "Csyrus_ML_Research_Project.txt",
+            "Csyrus_Internship_Offer_Letter.txt",
+            "AWS_Cloud_Architect_Certification.txt"
+        ])
+    ).first()
     if existing:
         return {"message": "Demo dataset has already been imported."}
 
@@ -375,6 +384,7 @@ async def import_demo_dataset(
 
         new_doc = Document(
             id=file_id,
+            user_id=current_user.id,
             filename=doc["filename"],
             filepath=file_path,
             filetype="text/plain",
@@ -391,7 +401,8 @@ async def import_demo_dataset(
             ExtractionService.run_extraction_task,
             file_path,
             "text/plain",
-            file_id
+            file_id,
+            current_user.id
         )
         
         imported.append({
@@ -409,9 +420,9 @@ async def import_demo_dataset(
 doc_router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 @doc_router.get("/{id}/status")
-def get_document_status(id: str, db: Session = Depends(get_db)):
+def get_document_status(id: str, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Returns the processing status of a specific document."""
-    doc = db.query(Document).filter(Document.id == id).first()
+    doc = db.query(Document).filter(Document.id == id, Document.user_id == current_user.id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     return {
@@ -425,10 +436,11 @@ def get_document_status(id: str, db: Session = Depends(get_db)):
 def retry_document_processing(
     id: str,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
 ):
     """Retries processing for a failed document."""
-    doc = db.query(Document).filter(Document.id == id).first()
+    doc = db.query(Document).filter(Document.id == id, Document.user_id == current_user.id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
         
@@ -443,7 +455,8 @@ def retry_document_processing(
         ExtractionService.run_extraction_task,
         doc.filepath,
         doc.filetype,
-        doc.id
+        doc.id,
+        current_user.id
     )
     
     return {"message": "Processing retried successfully", "status": "Queued"}

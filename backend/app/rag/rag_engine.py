@@ -12,7 +12,7 @@ class RAGEngine:
         self.vector_store = VectorStoreService()
         self.key_manager = GroqKeyManager()
 
-    def query(self, question: str, limit: int = 3) -> Dict[str, Any]:
+    def query(self, question: str, limit: int = 3, user_id: str = None) -> Dict[str, Any]:
         """
         Coordinates the entire RAG flow:
         User Question -> Embedding -> Similarity Search -> Top 3 Chunks -> Context Builder -> Groq Response
@@ -21,7 +21,7 @@ class RAGEngine:
         db = SessionLocal()
         try:
             from app.services.rag_service import RAGService
-            res = RAGService.answer_question(db, question)
+            res = RAGService.answer_question(db, question, user_id=user_id)
             
             citations = []
             for src in res.get("sources", []):
@@ -42,14 +42,14 @@ class RAGEngine:
         finally:
             db.close()
 
-    def query_stream(self, question: str, limit: int = 3) -> Generator[str, None, None]:
+    def query_stream(self, question: str, limit: int = 3, user_id: str = None) -> Generator[str, None, None]:
         """
         Streams RAG responses using Server-Sent Events (SSE).
         Yields JSON packets representing metadata, token streams, and suggested follow-ups.
         Supports key rotation through the fallback key pool.
         """
         from app.services.retriever_service import RetrieverService
-        retrieval = RetrieverService.retrieve_context(question)
+        retrieval = RetrieverService.retrieve_context(question, user_id=user_id)
         context_text = retrieval.get("context", "")
         sources = retrieval.get("sources", [])
         scores = retrieval.get("similarity_scores", [])

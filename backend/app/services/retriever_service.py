@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 class RetrieverService:
     @staticmethod
-    def retrieve_context(question: str) -> Dict[str, Any]:
+    def retrieve_context(question: str, user_id: str = None) -> Dict[str, Any]:
         """
         Converts the user question into an embedding, queries ChromaDB for the Top 3 chunks,
         and constructs a context string for LLM parsing.
@@ -26,7 +26,7 @@ class RetrieverService:
         query_embedding = query_embeddings[0]
 
         # 2. Chroma Similarity Search (Retrieve Top 3 Chunks Only)
-        search_results = VectorStoreService.query_similar_chunks(query_embedding, n_results=3)
+        search_results = VectorStoreService.query_similar_chunks(query_embedding, n_results=3, user_id=user_id)
 
         documents = search_results.get("documents", [[]])[0]
         metadatas = search_results.get("metadatas", [[]])[0]

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class GroqMetadataService:
     @staticmethod
-    def extract_and_persist(db: Session, document_id: str, text: str, filename: str) -> dict:
+    def extract_and_persist(db: Session, document_id: str, text: str, filename: str, user_id: str = None) -> dict:
         """
         Extracts document metadata using Groq (fallback routing supported) and saves to SQLite.
         Includes a caching layer: does not call Groq if metadata is already cached.
@@ -145,6 +145,7 @@ class GroqMetadataService:
         # 7. Persist to database (join lists into comma-separated strings)
         db_meta = DocumentMetadata(
             id=str(uuid.uuid4()),
+            user_id=user_id,
             document_id=document_id,
             title=metadata_json.get("title", filename),
             summary=metadata_json.get("summary", ""),

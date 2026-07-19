@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class RAGService:
     @staticmethod
-    def answer_question(db: Session, question: str) -> Dict[str, Any]:
+    def answer_question(db: Session, question: str, user_id: str = None) -> Dict[str, Any]:
         """
         Flow:
         1. Check SQLite RAGCache for duplicate query.
@@ -31,7 +31,8 @@ class RAGService:
 
         # 1. Check persistent SQLite cache to prevent redundant API calls
         cached_res = db.query(RAGCache).filter(
-            RAGCache.query == question_clean.lower()
+            RAGCache.query == question_clean.lower(),
+            RAGCache.user_id == user_id
         ).first()
 
         if cached_res:
@@ -47,7 +48,7 @@ class RAGService:
                 logger.error(f"Failed to parse cached RAG results: {str(parse_cache_error)}")
 
         # 2. Retrieve Top 3 context chunks via RetrieverService
-        retrieval = RetrieverService.retrieve_context(question_clean)
+        retrieval = RetrieverService.retrieve_context(question_clean, user_id=user_id)
         context = retrieval.get("context", "")
         sources = retrieval.get("sources", [])
 
@@ -62,7 +63,7 @@ class RAGService:
 
         # 3. Compile prompt constraints
         system_prompt = (
-            "You are a helpful assistant answering questions based on the provided document context from the user's second brain.\n"
+            "You are a helpful assistant answering questions based on the provided document context from the second brain.\n"
             "Instructions:\n"
             "- Answer the question using the provided context. If the query asks to show, summarize, or describe documents, summarize the matching document details found in the context.\n"
             "- Format your response content clearly using Markdown (bold headers and uniform bulleted lists) so it is easy to read. Prefer bullet points and short sentences over large text paragraphs.\n"
@@ -107,6 +108,7 @@ class RAGService:
                 # 5. Cache response in SQLite
                 cache_record = RAGCache(
                     id=str(uuid.uuid4()),
+                    user_id=user_id,
                     query=question_clean.lower(),
                     answer=answer,
                     sources=json.dumps(sources),
