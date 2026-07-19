@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -23,7 +24,7 @@ Base.metadata.create_all(bind=engine)
 with engine.begin() as conn:
     for table in ["document", "document_content", "document_chunk", "document_metadata", "document_embedding_status", "graph_nodes", "graph_edges", "rag_cache"]:
         try:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id VARCHAR")
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN user_id VARCHAR"))
         except Exception:
             # Silently pass if column already exists
             pass
